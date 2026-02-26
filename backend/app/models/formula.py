@@ -7,6 +7,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
+try:
+    from pgvector.sqlalchemy import Vector
+except ImportError:
+    Vector = None
+
 
 class Formula(Base):
     __tablename__ = "formulas"
@@ -26,4 +31,5 @@ class Formula(Base):
     related_ids: Mapped[Optional[List[int]]] = mapped_column(
         ARRAY(String), nullable=True
     )
+    embedding = mapped_column(Vector(1536), nullable=True) if Vector else None
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +25,10 @@ class Solution(Base):
     related_formula_ids: Mapped[Optional[List[int]]] = mapped_column(
         JSONB, nullable=True
     )
+    final_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    knowledge_points: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1)
     rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
