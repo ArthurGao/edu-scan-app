@@ -1,0 +1,1 @@
+# EduScan Backend Application
