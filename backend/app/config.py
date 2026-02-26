@@ -36,11 +36,12 @@ class Settings(BaseSettings):
     baidu_ocr_api_key: str = ""
     baidu_ocr_secret_key: str = ""
 
-    # AWS S3
-    aws_access_key_id: str = ""
-    aws_secret_access_key: str = ""
-    aws_region: str = "ap-southeast-2"
-    s3_bucket_name: str = "eduscan-images"
+    # Cloudflare R2 (S3-compatible)
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = "eduscan"
+    r2_public_url: str = ""  # Public access URL for the bucket
 
     # Model Configuration
     strong_model_claude: str = "claude-sonnet-4-20250514"
