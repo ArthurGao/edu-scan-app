@@ -6,8 +6,12 @@ from sqlalchemy import select
 
 from app.api.deps import get_current_user, get_db, get_or_create_guest_user
 from app.models.user import User
-from app.schemas.scan import ScanResponse
+from app.schemas.scan import (
+    ScanResponse, FollowUpRequest, FollowUpResponse,
+    ConversationResponse, ConversationMessageResponse,
+)
 from app.services.scan_service import ScanService
+from app.services.conversation_service import ConversationService
 
 router = APIRouter()
 
@@ -79,3 +83,46 @@ async def get_scan_result(scan_id: int, db: AsyncSession = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=404, detail="Scan not found")
     return result
+
+
+@router.post("/{scan_id}/followup", response_model=FollowUpResponse)
+async def followup(
+    scan_id: int,
+    request: FollowUpRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Send a follow-up question about a scan."""
+    service = ScanService(db)
+    result = await service.followup(
+        scan_id=scan_id,
+        user_id=current_user.id,
+        message=request.message,
+    )
+    return FollowUpResponse(
+        reply=result["reply"],
+        tokens_used=result.get("tokens_used", 0),
+    )
+
+
+@router.get("/{scan_id}/conversation", response_model=ConversationResponse)
+async def get_conversation(
+    scan_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get conversation history for a scan."""
+    service = ConversationService(db)
+    history = await service.get_history(scan_id)
+    return ConversationResponse(
+        messages=[
+            ConversationMessageResponse(
+                id=str(i),
+                role=msg["role"],
+                content=msg["content"],
+                created_at=msg["created_at"],
+            )
+            for i, msg in enumerate(history)
+        ],
+        total_messages=len(history),
+    )

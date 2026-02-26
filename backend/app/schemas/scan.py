@@ -50,3 +50,28 @@ class ScanRecordResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class FollowUpRequest(BaseModel):
+    message: str
+
+
+class FollowUpResponse(BaseModel):
+    reply: str
+    message_id: Optional[str] = None
+    tokens_used: int = 0
+
+
+class ConversationMessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ConversationResponse(BaseModel):
+    messages: List[ConversationMessageResponse]
+    total_messages: int

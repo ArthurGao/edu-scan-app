@@ -6,22 +6,27 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.graph.solve_graph import solve_graph
+from app.graph.followup_graph import followup_graph
 from app.models.scan_record import ScanRecord
 from app.models.solution import Solution
 from app.schemas.scan import ScanResponse, SolutionResponse, SolutionStep
-from app.services.ai_service import AIService
-from app.services.ocr_service import OCRService
+from app.services.conversation_service import ConversationService
+from app.services.embedding_service import EmbeddingService
 from app.services.storage_service import StorageService
+
+storage_service = StorageService()
 
 
 class ScanService:
-    """Service for handling problem scanning and solving."""
+    """Service for handling problem scanning and solving via LangGraph."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.ai_service = AIService()
-        self.ocr_service = OCRService()
-        self.storage_service = StorageService()
+        self._graph = solve_graph
+        self._followup_graph = followup_graph
+        self._conversation_service = ConversationService(db)
+        self._embedding_service = EmbeddingService(db)
 
     async def scan_and_solve(
         self,
@@ -31,58 +36,127 @@ class ScanService:
         ai_provider: Optional[str] = None,
         grade_level: Optional[str] = None,
     ) -> ScanResponse:
-        """
-        Process uploaded image and generate solution.
-        """
+        """Process uploaded image through LangGraph pipeline."""
         # 1. Upload image
-        image_url = await self.storage_service.upload_image(image)
+        image_url = await storage_service.upload_image(image)
 
-        # 2. Extract text using OCR
+        # 2. Read image bytes for OCR
         image.file.seek(0)
         image_bytes = await image.read()
-        ocr_text = await self.ocr_service.extract_text(image_bytes)
 
-        # 3. Detect subject if not provided
-        if not subject:
-            subject = self._detect_subject(ocr_text)
+        # 3. Run the LangGraph pipeline
+        result = await self._graph.ainvoke({
+            "image_bytes": image_bytes,
+            "image_url": image_url,
+            "user_id": user_id,
+            "subject": subject,
+            "grade_level": grade_level,
+            "preferred_provider": ai_provider,
+            "attempt_count": 0,
+        })
 
-        # 4. Generate solution using AI
-        solution_data = await self.ai_service.solve(
-            problem_text=ocr_text,
-            subject=subject,
-            grade_level=grade_level or "middle school",
-            provider=ai_provider
-        )
-
-        # 5. Save scan record to database
+        # 4. Persist scan record
         scan_record = ScanRecord(
             user_id=user_id,
             image_url=image_url,
-            ocr_text=ocr_text,
-            subject=subject,
+            ocr_text=result.get("ocr_text", ""),
+            ocr_confidence=result.get("ocr_confidence"),
+            subject=result.get("detected_subject"),
+            problem_type=result.get("problem_type"),
+            difficulty=result.get("difficulty"),
+            knowledge_points=result.get("knowledge_points", []),
         )
         self.db.add(scan_record)
-        await self.db.flush() # Get scan_record.id
+        await self.db.flush()
 
-        # 6. Save solution
+        # 5. Persist solution
+        final = result.get("final_solution", {})
         solution = Solution(
             scan_id=scan_record.id,
-            ai_provider=ai_provider or "claude",
-            model="claude-3-sonnet-20240229", # Simplified
-            content=solution_data.explanation or "",
-            steps=[step.model_dump() for step in solution_data.steps],
+            ai_provider=result.get("llm_provider", "unknown"),
+            model=result.get("llm_model", "unknown"),
+            content=result.get("solution_raw", ""),
+            steps=final.get("steps"),
+            final_answer=final.get("final_answer"),
+            knowledge_points=result.get("knowledge_points", []),
+            quality_score=result.get("quality_score"),
+            prompt_tokens=result.get("prompt_tokens", 0),
+            completion_tokens=result.get("completion_tokens", 0),
+            attempt_number=result.get("attempt_count", 1),
+            related_formula_ids=result.get("related_formula_ids", []),
         )
         self.db.add(solution)
-        await self.db.commit()
-        await self.db.refresh(scan_record)
 
+        # 6. Save initial conversation messages
+        await self._conversation_service.add_message(
+            scan_record.id, "system",
+            f"Problem: {result.get('ocr_text', '')}",
+        )
+        await self._conversation_service.add_message(
+            scan_record.id, "assistant",
+            result.get("solution_raw", ""),
+        )
+
+        await self.db.commit()
+
+        # 7. Generate embedding (best-effort, non-blocking)
+        try:
+            await self._embedding_service.embed_scan_record(
+                scan_record.id, result.get("ocr_text", "")
+            )
+            await self.db.commit()
+        except Exception:
+            pass
+
+        # 8. Build response
         return ScanResponse(
             scan_id=str(scan_record.id),
-            ocr_text=ocr_text,
-            solution=solution_data,
+            ocr_text=result.get("ocr_text", ""),
+            solution=SolutionResponse(
+                question_type=final.get("question_type", ""),
+                knowledge_points=final.get("knowledge_points", []),
+                steps=[SolutionStep(**s) for s in final.get("steps", [])],
+                final_answer=final.get("final_answer", ""),
+                explanation=final.get("explanation"),
+                tips=final.get("tips"),
+            ),
             related_formulas=[],
-            created_at=scan_record.created_at
+            created_at=scan_record.created_at or datetime.utcnow(),
         )
+
+    async def followup(
+        self, scan_id: int, user_id: int, message: str
+    ) -> dict:
+        """Handle follow-up question on a scan."""
+        history = await self._conversation_service.get_history(scan_id)
+
+        # Get scan record for context
+        result_row = await self.db.execute(
+            select(ScanRecord).where(ScanRecord.id == scan_id)
+        )
+        scan_record = result_row.scalars().first()
+        subject = scan_record.subject if scan_record else "math"
+
+        # Run follow-up graph
+        result = await self._followup_graph.ainvoke({
+            "scan_id": scan_id,
+            "user_message": message,
+            "conversation_history": history,
+            "subject": subject,
+            "grade_level": "middle school",
+        })
+
+        # Save messages
+        await self._conversation_service.add_message(scan_id, "user", message)
+        await self._conversation_service.add_message(
+            scan_id, "assistant", result.get("reply", "")
+        )
+        await self.db.commit()
+
+        return {
+            "reply": result.get("reply", ""),
+            "tokens_used": result.get("tokens_used", 0),
+        }
 
     async def get_scan_result(self, scan_id: int) -> Optional[ScanResponse]:
         """Retrieve a previous scan result."""
@@ -99,32 +173,17 @@ class ScanService:
         if not solution:
             return None
 
-        # Reconstruct SolutionResponse from stored data
         steps = [SolutionStep(**s) for s in (solution.steps or [])]
-
-        solution_response = SolutionResponse(
-            question_type=solution.content[:50] if solution.content else "Unknown",
-            knowledge_points=[],
-            steps=steps,
-            final_answer=steps[-1].calculation if steps else "",
-            explanation=solution.content,
-        )
-
         return ScanResponse(
             scan_id=str(scan_record.id),
             ocr_text=scan_record.ocr_text or "",
-            solution=solution_response,
+            solution=SolutionResponse(
+                question_type=solution.knowledge_points[0] if solution.knowledge_points else "",
+                knowledge_points=solution.knowledge_points or [],
+                steps=steps,
+                final_answer=solution.final_answer or "",
+                explanation=solution.content,
+            ),
             related_formulas=[],
             created_at=scan_record.created_at,
         )
-
-    def _detect_subject(self, ocr_text: str) -> str:
-        """Auto-detect subject from problem text."""
-        text = ocr_text.lower()
-        if any(w in text for w in ["x", "y", "solve", "equation", "angle", "triangle"]):
-            return "math"
-        if any(w in text for w in ["force", "mass", "acceleration", "velocity", "energy"]):
-            return "physics"
-        if any(w in text for w in ["atom", "molecule", "reaction", "acid", "base"]):
-            return "chemistry"
-        return "math"
