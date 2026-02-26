@@ -5,7 +5,8 @@ class SolveState(TypedDict, total=False):
     """State for the main problem-solving graph."""
     # Input
     image_bytes: Optional[bytes]
-    image_url: str
+    image_url: Optional[str]
+    input_text: Optional[str]
     user_id: int
     subject: Optional[str]
     grade_level: Optional[str]

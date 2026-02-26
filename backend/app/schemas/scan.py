@@ -42,7 +42,7 @@ class ScanResponse(BaseModel):
 
 class ScanRecordResponse(BaseModel):
     id: str
-    image_url: str
+    image_url: Optional[str] = None
     ocr_text: Optional[str]
     subject: Optional[str]
     difficulty: Optional[str]

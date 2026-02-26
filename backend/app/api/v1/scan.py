@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.api.deps import get_current_user, get_db, get_or_create_guest_user
+from app.api.deps import get_db, get_or_create_guest_user
 from app.models.user import User
 from app.schemas.scan import (
     ScanResponse, FollowUpRequest, FollowUpResponse,
@@ -18,29 +18,8 @@ router = APIRouter()
 
 @router.post("/solve", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
 async def solve_problem(
-    image: UploadFile = File(...),
-    subject: Optional[str] = Form(None),
-    ai_provider: Optional[str] = Form(None),
-    grade_level: Optional[str] = Form(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Upload a homework problem image, perform OCR, and get a solution from AI.
-    """
-    scan_service = ScanService(db)
-    return await scan_service.scan_and_solve(
-        user_id=current_user.id,
-        image=image,
-        subject=subject,
-        ai_provider=ai_provider,
-        grade_level=grade_level
-    )
-
-
-@router.post("/solve-guest", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
-async def solve_problem_guest(
-    image: UploadFile = File(...),
+    image: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
     subject: Optional[str] = Form(None),
     ai_provider: Optional[str] = Form(None),
     grade_level: Optional[str] = Form(None),
@@ -48,13 +27,49 @@ async def solve_problem_guest(
     guest_user: User = Depends(get_or_create_guest_user),
 ):
     """
-    Upload a homework problem image without authentication (guest mode).
-    Uses a shared guest user account.
+    Solve a homework problem from an uploaded image or typed text.
+    At least one of `image` or `text` must be provided.
     """
+    if not image and not text:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Either 'image' or 'text' must be provided.",
+        )
     scan_service = ScanService(db)
     return await scan_service.scan_and_solve(
         user_id=guest_user.id,
         image=image,
+        text=text,
+        subject=subject,
+        ai_provider=ai_provider,
+        grade_level=grade_level,
+    )
+
+
+@router.post("/solve-guest", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
+async def solve_problem_guest(
+    image: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
+    subject: Optional[str] = Form(None),
+    ai_provider: Optional[str] = Form(None),
+    grade_level: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    guest_user: User = Depends(get_or_create_guest_user),
+):
+    """
+    Solve a homework problem from an uploaded image or typed text (guest mode).
+    At least one of `image` or `text` must be provided.
+    """
+    if not image and not text:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Either 'image' or 'text' must be provided.",
+        )
+    scan_service = ScanService(db)
+    return await scan_service.scan_and_solve(
+        user_id=guest_user.id,
+        image=image,
+        text=text,
         subject=subject,
         ai_provider=ai_provider,
         grade_level=grade_level,
@@ -90,13 +105,13 @@ async def followup(
     scan_id: int,
     request: FollowUpRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    guest_user: User = Depends(get_or_create_guest_user),
 ):
     """Send a follow-up question about a scan."""
     service = ScanService(db)
     result = await service.followup(
         scan_id=scan_id,
-        user_id=current_user.id,
+        user_id=guest_user.id,
         message=request.message,
     )
     return FollowUpResponse(
@@ -109,7 +124,7 @@ async def followup(
 async def get_conversation(
     scan_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    guest_user: User = Depends(get_or_create_guest_user),
 ):
     """Get conversation history for a scan."""
     service = ConversationService(db)

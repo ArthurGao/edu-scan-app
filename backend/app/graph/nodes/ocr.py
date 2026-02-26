@@ -5,10 +5,15 @@ ocr_service = OCRService()
 
 
 async def ocr_node(state: SolveState) -> dict:
-    """Extract text from image using OCR provider."""
+    """Extract text from image using OCR, or use directly provided text."""
+    # If text was provided directly, skip OCR
+    input_text = state.get("input_text")
+    if input_text:
+        return {"ocr_text": input_text, "ocr_confidence": 1.0}
+
     image_bytes = state.get("image_bytes")
     if not image_bytes:
-        return {"ocr_text": "", "ocr_confidence": 0.0, "error": "No image data provided"}
+        return {"ocr_text": "", "ocr_confidence": 0.0, "error": "No image or text provided"}
 
     try:
         text = await ocr_service.extract_text(image_bytes)

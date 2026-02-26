@@ -22,7 +22,7 @@ class ScanRecord(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    image_url: Mapped[str] = mapped_column(String(500))
+    image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     ocr_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subject: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     difficulty: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)

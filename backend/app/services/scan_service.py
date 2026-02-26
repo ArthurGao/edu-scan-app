@@ -31,23 +31,27 @@ class ScanService:
     async def scan_and_solve(
         self,
         user_id: int,
-        image: UploadFile,
+        image: Optional[UploadFile] = None,
+        text: Optional[str] = None,
         subject: Optional[str] = None,
         ai_provider: Optional[str] = None,
         grade_level: Optional[str] = None,
     ) -> ScanResponse:
-        """Process uploaded image through LangGraph pipeline."""
-        # 1. Upload image
-        image_url = await storage_service.upload_image(image)
+        """Process uploaded image or typed text through LangGraph pipeline."""
+        image_url: Optional[str] = None
+        image_bytes: Optional[bytes] = None
 
-        # 2. Read image bytes for OCR
-        image.file.seek(0)
-        image_bytes = await image.read()
+        if image:
+            # Image flow: upload and read bytes for OCR
+            image_url = await storage_service.upload_image(image)
+            image.file.seek(0)
+            image_bytes = await image.read()
 
         # 3. Run the LangGraph pipeline
         result = await self._graph.ainvoke({
             "image_bytes": image_bytes,
             "image_url": image_url,
+            "input_text": text,
             "user_id": user_id,
             "subject": subject,
             "grade_level": grade_level,
@@ -92,9 +96,21 @@ class ScanService:
             scan_record.id, "system",
             f"Problem: {result.get('ocr_text', '')}",
         )
+        # Build a readable summary instead of storing the raw JSON
+        summary_parts = []
+        if final.get("final_answer"):
+            summary_parts.append(f"Answer: {final['final_answer']}")
+        steps = final.get("steps") or []
+        if steps:
+            summary_parts.append("Steps:")
+            for s in steps:
+                step_num = s.get("step", "")
+                desc = s.get("description", "")
+                summary_parts.append(f"  {step_num}. {desc}")
+        assistant_summary = "\n".join(summary_parts) if summary_parts else result.get("solution_raw", "")
         await self._conversation_service.add_message(
             scan_record.id, "assistant",
-            result.get("solution_raw", ""),
+            assistant_summary,
         )
 
         await self.db.commit()
