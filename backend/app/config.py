@@ -48,6 +48,30 @@ class Settings(BaseSettings):
     aws_region: str = "ap-southeast-2"
     s3_bucket_name: str = "eduscan-images"
 
+    # Model Configuration
+    strong_model_claude: str = "claude-sonnet-4-20250514"
+    fast_model_claude: str = "claude-haiku-4-5-20251001"
+    strong_model_openai: str = "gpt-4o"
+    fast_model_openai: str = "gpt-4o-mini"
+    strong_model_gemini: str = "gemini-2.0-flash"
+    fast_model_gemini: str = "gemini-2.0-flash-lite"
+
+    # Embeddings
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
+
+    # LangGraph
+    max_solve_attempts: int = 3
+    min_quality_score: float = 0.7
+
+    # Conversation
+    max_followup_messages: int = 20
+    conversation_ttl_hours: int = 24
+
+    # Observability (optional)
+    langsmith_api_key: str = ""
+    langsmith_project: str = "eduscan"
+
     # CORS
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:19006"]
 
