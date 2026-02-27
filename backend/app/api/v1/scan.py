@@ -12,8 +12,20 @@ from app.schemas.scan import (
 )
 from app.services.scan_service import ScanService
 from app.services.conversation_service import ConversationService
+from app.services.ocr_service import OCRService
 
 router = APIRouter()
+
+
+@router.post("/extract-text")
+async def extract_text(
+    image: UploadFile = File(...),
+):
+    """Extract text from an uploaded image using OCR (no solving)."""
+    image_bytes = await image.read()
+    ocr_service = OCRService()
+    text = await ocr_service.extract_text(image_bytes)
+    return {"ocr_text": text}
 
 
 @router.post("/solve", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)

@@ -11,6 +11,16 @@ const api = axios.create({
 
 export default api;
 
+// OCR — extract text only
+export async function extractText(file: File): Promise<{ ocr_text: string }> {
+  const formData = new FormData();
+  formData.append("image", file);
+  const res = await api.post("/scan/extract-text", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+}
+
 // Scan
 export async function solveImage(
   file: File,
