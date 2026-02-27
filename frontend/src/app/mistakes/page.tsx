@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { getMistakes, updateMistake, deleteMistake } from "@/lib/api";
 import { MistakeRecord, PaginatedResponse } from "@/lib/types";
 
-const filterTabs = ["All", "Unmastered", "Mastered"];
+const masteryTabs = ["All", "Unmastered", "Mastered"];
+const subjectTabs = ["All", "Math", "Physics", "Chemistry", "Biology", "English", "Chinese"];
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);
@@ -19,6 +20,9 @@ const subjectColors: Record<string, string> = {
   math: "bg-indigo-100 text-indigo-700",
   physics: "bg-blue-100 text-blue-700",
   chemistry: "bg-emerald-100 text-emerald-700",
+  biology: "bg-orange-100 text-orange-700",
+  english: "bg-rose-100 text-rose-700",
+  chinese: "bg-amber-100 text-amber-700",
 };
 
 export default function MistakesPage() {
@@ -27,6 +31,7 @@ export default function MistakesPage() {
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [activeTab, setActiveTab] = useState("All");
+  const [activeSubject, setActiveSubject] = useState("All");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
@@ -38,12 +43,14 @@ export default function MistakesPage() {
     setError(null);
     try {
       const params: {
+        subject?: string;
         mastered?: boolean;
         page: number;
         limit: number;
       } = { page, limit };
       if (activeTab === "Mastered") params.mastered = true;
       if (activeTab === "Unmastered") params.mastered = false;
+      if (activeSubject !== "All") params.subject = activeSubject.toLowerCase();
       const data: PaginatedResponse<MistakeRecord> =
         await getMistakes(params);
       setMistakes(data.items);
@@ -56,7 +63,7 @@ export default function MistakesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, activeTab]);
+  }, [page, activeTab, activeSubject]);
 
   useEffect(() => {
     fetchMistakes();
@@ -102,6 +109,11 @@ export default function MistakesPage() {
     setPage(1);
   };
 
+  const handleSubjectChange = (subject: string) => {
+    setActiveSubject(subject);
+    setPage(1);
+  };
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -112,15 +124,32 @@ export default function MistakesPage() {
         </p>
       </div>
 
-      {/* Filter tabs */}
+      {/* Subject filter tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {subjectTabs.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => handleSubjectChange(tab)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              activeSubject === tab
+                ? "bg-indigo-500 text-white"
+                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {/* Mastery filter tabs */}
       <div className="flex gap-2">
-        {filterTabs.map((tab) => (
+        {masteryTabs.map((tab) => (
           <button
             key={tab}
             onClick={() => handleTabChange(tab)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               activeTab === tab
-                ? "bg-indigo-500 text-white"
+                ? "bg-gray-800 text-white"
                 : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
             }`}
           >

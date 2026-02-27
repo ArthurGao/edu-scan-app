@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import UploadZone from "@/components/UploadZone";
 import SolutionDisplay from "@/components/SolutionDisplay";
 import ConversationThread from "@/components/ConversationThread";
+import MathPreview from "@/components/MathPreview";
 import { extractText, solveText, addToMistakes } from "@/lib/api";
 import { ScanResponse, ConversationMessage } from "@/lib/types";
 
@@ -14,6 +15,9 @@ const subjects = [
   { value: "math", label: "Math" },
   { value: "physics", label: "Physics" },
   { value: "chemistry", label: "Chemistry" },
+  { value: "biology", label: "Biology" },
+  { value: "english", label: "English" },
+  { value: "chinese", label: "Chinese" },
 ];
 
 export default function UploadSolvePage() {
@@ -244,8 +248,9 @@ export default function UploadSolvePage() {
                     value={ocrText}
                     onChange={(e) => setOcrText(e.target.value)}
                     rows={8}
-                    className="w-full h-[calc(100%-2rem)] min-h-[180px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-y"
+                    className="w-full min-h-[180px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-y"
                   />
+                  <MathPreview text={ocrText} />
                 </div>
               </div>
 
@@ -305,10 +310,11 @@ export default function UploadSolvePage() {
               setError(null);
               setSaved(false);
             }}
-            placeholder="Type or paste your homework problem here...&#10;&#10;Example: Solve for x: 2x + 5 = 15"
+            placeholder={"Type or paste your homework problem here...\n\nExample: Solve for $x$: $2x + 5 = 15$"}
             rows={6}
             className="w-full rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none transition-colors resize-y"
           />
+          <MathPreview text={problemText} />
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className="flex-1 w-full sm:w-auto">
               <label htmlFor="subject-text" className="block text-sm font-medium text-gray-700 mb-1">

@@ -67,12 +67,13 @@ class StorageService:
         return str(file_path)
 
     async def delete_image(self, url: str) -> bool:
+        """Delete an image from R2 or local filesystem.
+
+        Extracts the object key from the stored URL and issues a delete.
+        """
         try:
             if self._use_r2:
-                # Extract key from URL
-                key = url.split(f"{settings.r2_bucket_name}/")[-1]
-                if settings.r2_public_url:
-                    key = url.replace(settings.r2_public_url.rstrip("/") + "/", "")
+                key = self._extract_r2_key(url)
                 self._s3.delete_object(
                     Bucket=settings.r2_bucket_name,
                     Key=key,
@@ -86,3 +87,24 @@ class StorageService:
             return False
         except Exception:
             return False
+
+    @staticmethod
+    def _extract_r2_key(url: str) -> str:
+        """Extract the R2 object key from a stored URL.
+
+        Upload produces two URL formats:
+          - Public:  {r2_public_url}/scans/uuid.jpg
+          - Direct:  https://{account}.r2.cloudflarestorage.com/{bucket}/scans/uuid.jpg
+        """
+        public = settings.r2_public_url
+        if public and url.startswith(public.rstrip("/")):
+            return url[len(public.rstrip("/")) + 1:]
+
+        # Direct URL: everything after "{bucket}/"
+        marker = f"{settings.r2_bucket_name}/"
+        idx = url.find(marker)
+        if idx != -1:
+            return url[idx + len(marker):]
+
+        # Fallback: treat whole URL as key
+        return url

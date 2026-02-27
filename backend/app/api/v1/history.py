@@ -1,15 +1,21 @@
+import logging
 from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, get_or_create_guest_user
+from app.models.mistake_book import MistakeBook
 from app.models.scan_record import ScanRecord
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.scan import ScanRecordResponse
+from app.services.storage_service import StorageService
+
+logger = logging.getLogger(__name__)
+storage_service = StorageService()
 
 router = APIRouter()
 
@@ -72,7 +78,7 @@ async def delete_history_item(
     db: AsyncSession = Depends(get_db),
     guest_user: User = Depends(get_or_create_guest_user),
 ):
-    """Delete a scan record from history."""
+    """Delete a scan record, its related DB rows, and the stored image."""
     result = await db.execute(
         select(ScanRecord).where(
             ScanRecord.id == scan_id, ScanRecord.user_id == guest_user.id
@@ -81,6 +87,21 @@ async def delete_history_item(
     record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
+
+    # 1. Delete image from storage (R2 or local)
+    if record.image_url:
+        try:
+            await storage_service.delete_image(record.image_url)
+        except Exception as e:
+            logger.warning("Failed to delete image %s: %s", record.image_url, e)
+
+    # 2. Delete related mistake_book entries (no CASCADE on FK)
+    await db.execute(
+        sa_delete(MistakeBook).where(MistakeBook.scan_id == scan_id)
+    )
+
+    # 3. Delete scan record (solutions, conversation_messages, evaluation_logs
+    #    are CASCADE-deleted by DB foreign keys)
     await db.delete(record)
     await db.commit()
     return {"message": "Deleted successfully"}

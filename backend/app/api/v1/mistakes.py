@@ -41,10 +41,8 @@ async def get_mistakes(
         count_query = count_query.where(MistakeBook.mastered == mastered)
 
     if subject:
-        query = query.join(ScanRecord).where(ScanRecord.subject == subject)
-        count_query = count_query.join(ScanRecord).where(
-            ScanRecord.subject == subject
-        )
+        query = query.where(MistakeBook.subject == subject)
+        count_query = count_query.where(MistakeBook.subject == subject)
 
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
@@ -113,6 +111,7 @@ async def add_to_mistakes(
     mistake = MistakeBook(
         user_id=guest_user.id,
         scan_id=int(request.scan_id),
+        subject=scan_record.subject,
         notes=request.notes,
         next_review_at=datetime.utcnow() + timedelta(days=1),
     )

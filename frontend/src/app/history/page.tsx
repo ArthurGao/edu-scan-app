@@ -5,12 +5,15 @@ import { useRouter } from "next/navigation";
 import { getHistory, deleteHistoryItem } from "@/lib/api";
 import { ScanRecord, PaginatedResponse } from "@/lib/types";
 
-const subjectTabs = ["All", "Math", "Physics", "Chemistry"];
+const subjectTabs = ["All", "Math", "Physics", "Chemistry", "Biology", "English", "Chinese"];
 
 const subjectColors: Record<string, string> = {
   math: "bg-indigo-100 text-indigo-700",
   physics: "bg-blue-100 text-blue-700",
   chemistry: "bg-emerald-100 text-emerald-700",
+  biology: "bg-orange-100 text-orange-700",
+  english: "bg-rose-100 text-rose-700",
+  chinese: "bg-amber-100 text-amber-700",
 };
 
 function formatDate(dateStr: string) {

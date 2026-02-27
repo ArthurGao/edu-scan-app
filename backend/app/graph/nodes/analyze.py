@@ -7,6 +7,9 @@ SUBJECT_KEYWORDS = {
     "math": ["x", "y", "solve", "equation", "angle", "triangle", "calculate", "sum", "product"],
     "physics": ["force", "mass", "acceleration", "velocity", "energy", "momentum", "wave"],
     "chemistry": ["atom", "molecule", "reaction", "acid", "base", "element", "compound"],
+    "biology": ["cell", "gene", "protein", "organism", "evolution", "DNA", "photosynthesis"],
+    "english": ["grammar", "sentence", "verb", "noun", "essay", "paragraph", "vocabulary"],
+    "chinese": ["汉字", "拼音", "词语", "造句", "阅读", "作文", "成语"],
 }
 
 
