@@ -17,3 +17,25 @@ def should_retry(state: SolveState) -> Literal["retry", "enrich", "fallback"]:
         return "retry"
     else:
         return "fallback"
+
+
+def should_retry_after_verify(state: SolveState) -> Literal["enrich", "solve", "caution"]:
+    """Decide next step based on quick_verify results."""
+    verify_passed = state.get("verify_passed")
+    verify_confidence = state.get("verify_confidence", 0.0)
+    attempt_count = state.get("attempt_count", 0)
+
+    # Verified correct with high confidence
+    if verify_passed is True and verify_confidence >= 0.8:
+        return "enrich"
+
+    # Verification skipped (timeout, error, low confidence)
+    if verify_passed is None:
+        return "enrich"
+
+    # Verification failed — retry with different provider if attempts remain
+    if attempt_count < 2:
+        return "solve"
+
+    # Max retries reached — return with caution flag
+    return "caution"

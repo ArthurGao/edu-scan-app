@@ -9,15 +9,97 @@ interface SolutionDisplayProps {
   isSaving?: boolean;
 }
 
-function renderLatex(latex: string): string {
+/**
+ * Render a pure LaTeX string via KaTeX.
+ */
+function renderLatex(latex: string, displayMode = false): string {
   try {
     return katex.renderToString(latex, {
       throwOnError: false,
-      displayMode: false,
+      displayMode,
     });
   } catch {
     return latex;
   }
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Render mixed text that may contain inline math ($...$) or display math ($$...$$).
+ * Non-math portions are HTML-escaped; math portions are rendered via KaTeX.
+ */
+function renderMathText(text: string): string {
+  if (!text) return "";
+
+  // Collect all math segments with positions
+  const segments: {
+    start: number;
+    end: number;
+    latex: string;
+    display: boolean;
+  }[] = [];
+
+  // Display math: $$...$$
+  const displayRegex = /\$\$([\s\S]*?)\$\$/g;
+  let match: RegExpExecArray | null;
+  while ((match = displayRegex.exec(text)) !== null) {
+    segments.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      latex: match[1],
+      display: true,
+    });
+  }
+
+  // Inline math: $...$ (skip positions already claimed by display math)
+  const inlineRegex = /\$([^\$\n]+?)\$/g;
+  while ((match = inlineRegex.exec(text)) !== null) {
+    const overlaps = segments.some(
+      (s) => match!.index >= s.start && match!.index < s.end
+    );
+    if (!overlaps) {
+      segments.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        latex: match[1],
+        display: false,
+      });
+    }
+  }
+
+  segments.sort((a, b) => a.start - b.start);
+
+  // No math delimiters — return escaped text
+  if (segments.length === 0) {
+    return escapeHtml(text);
+  }
+
+  // Build output with interleaved text and math
+  const parts: string[] = [];
+  let lastIndex = 0;
+  for (const seg of segments) {
+    if (seg.start > lastIndex) {
+      parts.push(escapeHtml(text.substring(lastIndex, seg.start)));
+    }
+    const rendered = renderLatex(seg.latex, seg.display);
+    parts.push(
+      seg.display
+        ? `<div class="katex-container my-2">${rendered}</div>`
+        : `<span class="katex-container">${rendered}</span>`
+    );
+    lastIndex = seg.end;
+  }
+  if (lastIndex < text.length) {
+    parts.push(escapeHtml(text.substring(lastIndex)));
+  }
+
+  return parts.join("");
 }
 
 function SubjectBadge({ label }: { label: string }) {
@@ -37,6 +119,60 @@ function SubjectBadge({ label }: { label: string }) {
   );
 }
 
+function VerificationBadge({
+  status,
+  confidence,
+}: {
+  status?: string;
+  confidence?: number;
+}) {
+  if (!status || status === "unverified") return null;
+
+  if (status === "verified") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+        <svg
+          className="w-3.5 h-3.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        已验证{confidence ? ` ${Math.round(confidence * 100)}%` : ""}
+      </span>
+    );
+  }
+
+  if (status === "caution") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+        <svg
+          className="w-3.5 h-3.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+          />
+        </svg>
+        建议核实
+      </span>
+    );
+  }
+
+  return null;
+}
+
 export default function SolutionDisplay({
   data,
   onSaveToMistakes,
@@ -50,7 +186,13 @@ export default function SolutionDisplay({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Solution</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-gray-900">Solution</h2>
+              <VerificationBadge
+                status={solution.verification_status}
+                confidence={solution.verification_confidence}
+              />
+            </div>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <SubjectBadge label={solution.question_type} />
               {solution.knowledge_points.map((point, i) => (
@@ -93,30 +235,37 @@ export default function SolutionDisplay({
         <h3 className="text-base font-semibold text-gray-900 mb-4">
           Step-by-Step Solution
         </h3>
-        <div className="space-y-4">
+        <div className="space-y-5">
           {solution.steps.map((step) => (
             <div key={step.step} className="flex gap-4">
               <div className="flex-shrink-0 w-8 h-8 bg-indigo-500 text-white rounded-full flex items-center justify-center text-sm font-bold">
                 {step.step}
               </div>
-              <div className="flex-1 pt-0.5">
-                <p className="text-gray-800 text-sm leading-relaxed">
-                  {step.description}
-                </p>
+              <div className="flex-1 pt-0.5 min-w-0">
+                {/* Description — supports inline math with $...$ */}
+                <div
+                  className="text-gray-800 text-sm leading-relaxed"
+                  dangerouslySetInnerHTML={{
+                    __html: renderMathText(step.description),
+                  }}
+                />
+                {/* Formula — rendered as display math */}
                 {step.formula && (
                   <div
-                    className="mt-2 bg-indigo-50 rounded-lg px-4 py-2 inline-block katex-container"
+                    className="mt-2 bg-indigo-50 rounded-lg px-4 py-3 katex-container overflow-x-auto"
                     dangerouslySetInnerHTML={{
-                      __html: renderLatex(step.formula),
+                      __html: renderLatex(step.formula, true),
                     }}
                   />
                 )}
+                {/* Calculation — rendered with math support */}
                 {step.calculation && (
-                  <div className="mt-2 bg-gray-50 rounded-lg px-4 py-2">
-                    <code className="text-sm text-gray-700">
-                      {step.calculation}
-                    </code>
-                  </div>
+                  <div
+                    className="mt-2 bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700 overflow-x-auto leading-relaxed katex-container"
+                    dangerouslySetInnerHTML={{
+                      __html: renderMathText(step.calculation),
+                    }}
+                  />
                 )}
               </div>
             </div>
@@ -142,11 +291,14 @@ export default function SolutionDisplay({
               />
             </svg>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-medium text-emerald-700">Final Answer</p>
-            <p className="text-lg font-semibold text-emerald-900 mt-0.5">
-              {solution.final_answer}
-            </p>
+            <div
+              className="text-lg font-semibold text-emerald-900 mt-0.5 katex-container"
+              dangerouslySetInnerHTML={{
+                __html: renderMathText(solution.final_answer),
+              }}
+            />
           </div>
         </div>
       </div>
@@ -157,9 +309,12 @@ export default function SolutionDisplay({
           <h3 className="text-base font-semibold text-gray-900 mb-2">
             Explanation
           </h3>
-          <p className="text-sm text-gray-600 leading-relaxed">
-            {solution.explanation}
-          </p>
+          <div
+            className="text-sm text-gray-600 leading-relaxed"
+            dangerouslySetInnerHTML={{
+              __html: renderMathText(solution.explanation),
+            }}
+          />
         </div>
       )}
 
@@ -182,7 +337,12 @@ export default function SolutionDisplay({
             </svg>
             <div>
               <p className="text-sm font-medium text-amber-800">Tip</p>
-              <p className="text-sm text-amber-700 mt-1">{solution.tips}</p>
+              <div
+                className="text-sm text-amber-700 mt-1"
+                dangerouslySetInnerHTML={{
+                  __html: renderMathText(solution.tips),
+                }}
+              />
             </div>
           </div>
         </div>
@@ -204,9 +364,9 @@ export default function SolutionDisplay({
                   {formula.name}
                 </p>
                 <div
-                  className="mt-2 katex-container"
+                  className="mt-2 katex-container overflow-x-auto"
                   dangerouslySetInnerHTML={{
-                    __html: renderLatex(formula.latex),
+                    __html: renderLatex(formula.latex, true),
                   }}
                 />
               </div>

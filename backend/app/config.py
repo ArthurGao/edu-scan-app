@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     fast_model_claude: str = "claude-haiku-4-5-20251001"
     strong_model_openai: str = "gpt-4o"
     fast_model_openai: str = "gpt-4o-mini"
-    strong_model_gemini: str = "gemini-2.0-flash"
-    fast_model_gemini: str = "gemini-2.0-flash-lite"
+    strong_model_gemini: str = "gemini-2.5-flash"
+    fast_model_gemini: str = "gemini-2.5-flash-lite"
 
     # Embeddings
     embedding_model: str = "text-embedding-3-small"

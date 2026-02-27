@@ -21,6 +21,13 @@ Requirements:
 3. Show detailed solution steps with explanations
 4. Provide the final answer
 5. Give tips for solving similar problems
+
+Math formatting rules:
+- In "formula" fields: use pure LaTeX (no $ delimiters), e.g. "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}"
+- In "description", "calculation", "explanation", "tips" fields: wrap math expressions with $ delimiters for inline math, e.g. "Substitute $x = 5$ into the equation"
+- Use $$ delimiters for display math in text fields, e.g. "$$x^2 + 2x + 1 = 0$$"
+- Use LaTeX for fractions (\\frac{a}{b}), exponents (x^{2}), square roots (\\sqrt{x}), etc.
+- Do NOT use plain text for math like "1/2" or "x^2" — always use LaTeX notation
 """
     if context:
         user_content += f"""

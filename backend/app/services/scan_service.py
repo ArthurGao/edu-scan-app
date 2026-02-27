@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -8,12 +10,15 @@ from sqlalchemy.orm import selectinload
 
 from app.graph.solve_graph import solve_graph
 from app.graph.followup_graph import followup_graph
+from app.graph.nodes.deep_evaluate import run_deep_evaluate
 from app.models.scan_record import ScanRecord
 from app.models.solution import Solution
 from app.schemas.scan import ScanResponse, SolutionResponse, SolutionStep
 from app.services.conversation_service import ConversationService
 from app.services.embedding_service import EmbeddingService
 from app.services.storage_service import StorageService
+
+logger = logging.getLogger(__name__)
 
 storage_service = StorageService()
 
@@ -73,8 +78,19 @@ class ScanService:
         self.db.add(scan_record)
         await self.db.flush()
 
-        # 5. Persist solution
+        # 5. Compute verification status from quick_verify results
         final = result.get("final_solution", {})
+        verify_passed = result.get("verify_passed")
+        verify_confidence = result.get("verify_confidence", 0.0)
+
+        if verify_passed is True and verify_confidence >= 0.8:
+            verification_status = "verified"
+        elif verify_passed is False and result.get("attempt_count", 0) >= 2:
+            verification_status = "caution"
+        else:
+            verification_status = "unverified"
+
+        # 6. Persist solution
         solution = Solution(
             scan_id=scan_record.id,
             ai_provider=result.get("llm_provider", "unknown"),
@@ -88,6 +104,8 @@ class ScanService:
             completion_tokens=result.get("completion_tokens", 0),
             attempt_number=result.get("attempt_count", 1),
             related_formula_ids=result.get("related_formula_ids", []),
+            verification_status=verification_status,
+            verification_confidence=verify_confidence,
         )
         self.db.add(solution)
 
@@ -124,7 +142,20 @@ class ScanService:
         except Exception:
             pass
 
-        # 8. Build response
+        # 8. Fire async deep evaluation (non-blocking)
+        asyncio.create_task(
+            self._run_deep_evaluate_background(
+                solution_id=solution.id,
+                problem_text=result.get("ocr_text", ""),
+                solution_raw=result.get("solution_raw", ""),
+                final_answer=final.get("final_answer", ""),
+                steps=final.get("steps", []),
+                subject=result.get("detected_subject", "math"),
+                grade_level=grade_level or "middle school",
+            )
+        )
+
+        # 9. Build response
         return ScanResponse(
             scan_id=str(scan_record.id),
             ocr_text=result.get("ocr_text", ""),
@@ -135,10 +166,45 @@ class ScanService:
                 final_answer=final.get("final_answer", ""),
                 explanation=final.get("explanation"),
                 tips=final.get("tips"),
+                verification_status=verification_status,
+                verification_confidence=verify_confidence,
             ),
             related_formulas=[],
             created_at=scan_record.created_at or datetime.utcnow(),
         )
+
+    async def _run_deep_evaluate_background(
+        self,
+        solution_id: int,
+        problem_text: str,
+        solution_raw: str,
+        final_answer: str,
+        steps: list,
+        subject: str,
+        grade_level: str,
+    ) -> None:
+        """Run deep evaluation in the background and persist results."""
+        try:
+            evaluation = await run_deep_evaluate(
+                problem_text=problem_text,
+                solution_raw=solution_raw,
+                final_answer=final_answer,
+                steps=steps,
+                subject=subject,
+                grade_level=grade_level,
+            )
+            if evaluation:
+                result = await self.db.execute(
+                    select(Solution).where(Solution.id == solution_id)
+                )
+                sol = result.scalar_one_or_none()
+                if sol:
+                    sol.deep_evaluation = evaluation
+                    sol.quality_score = evaluation.get("overall", sol.quality_score)
+                    await self.db.commit()
+                    logger.info("Deep evaluation saved for solution %s", solution_id)
+        except Exception as e:
+            logger.warning("Background deep_evaluate failed for solution %s: %s", solution_id, e)
 
     async def followup(
         self, scan_id: int, user_id: int, message: str
@@ -199,6 +265,8 @@ class ScanService:
                 steps=steps,
                 final_answer=solution.final_answer or "",
                 explanation=solution.content,
+                verification_status=solution.verification_status or "unverified",
+                verification_confidence=solution.verification_confidence or 0.0,
             ),
             related_formulas=[],
             created_at=scan_record.created_at,

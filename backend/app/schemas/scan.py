@@ -30,6 +30,8 @@ class SolutionResponse(BaseModel):
     final_answer: str
     explanation: Optional[str] = None
     tips: Optional[str] = None
+    verification_status: str = "unverified"  # "verified" | "unverified" | "caution"
+    verification_confidence: float = 0.0
 
 
 class ScanResponse(BaseModel):

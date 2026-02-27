@@ -21,8 +21,10 @@ MODEL_CONFIG: dict[str, dict[str, str]] = {
         "fast": "gpt-4o-mini",
     },
     "gemini": {
-        "strong": "gemini-2.0-flash",
-        "fast": "gemini-2.0-flash-lite",
+        "strong": "gemini-2.5-flash",
+        "fast": "gemini-2.5-flash-lite",
+        "verify": "gemini-2.5-flash-lite",
+        "evaluate": "gemini-2.5-flash",
     },
 }
 
@@ -58,7 +60,8 @@ def get_llm(tier: str = "strong", provider: str | None = None) -> BaseChatModel:
     if provider not in LLM_REGISTRY:
         raise ValueError(f"Unknown provider: {provider}. Available: {list(LLM_REGISTRY.keys())}")
     if tier not in MODEL_CONFIG.get(provider, {}):
-        raise ValueError(f"Unknown tier: {tier}. Available: strong, fast")
+        available = list(MODEL_CONFIG.get(provider, {}).keys())
+        raise ValueError(f"Unknown tier: {tier}. Available: {available}")
 
     cls = LLM_REGISTRY[provider]
     model = MODEL_CONFIG[provider][tier]

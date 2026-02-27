@@ -39,6 +39,12 @@ class SolveState(TypedDict, total=False):
     quality_issues: list[str]
     attempt_count: int
 
+    # Verification (quick_verify)
+    verify_passed: Optional[bool]
+    verify_confidence: float
+    independent_answer: Optional[str]
+    verify_error: Optional[str]
+
     # Enrichment
     final_solution: dict
     related_formula_ids: list[int]

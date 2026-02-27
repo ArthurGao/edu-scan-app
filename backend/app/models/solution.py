@@ -30,6 +30,15 @@ class Solution(Base):
     quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     attempt_number: Mapped[int] = mapped_column(Integer, default=1)
     rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    verification_status: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True, default="unverified"
+    )
+    verification_confidence: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True
+    )
+    deep_evaluation: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Relationships

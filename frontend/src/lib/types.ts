@@ -18,6 +18,8 @@ export interface SolutionResponse {
   final_answer: string;
   explanation?: string;
   tips?: string;
+  verification_status?: "verified" | "unverified" | "caution";
+  verification_confidence?: number;
 }
 
 export interface ScanResponse {
