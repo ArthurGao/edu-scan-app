@@ -7,14 +7,14 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import get_settings
-from app.database import Base
+from app.database import Base, _fix_db_url
 from app.models import *  # noqa: F401, F403 - Import all models for metadata
 
 config = context.config
 settings = get_settings()
 
-# Override sqlalchemy.url with settings
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Override sqlalchemy.url with settings (fix URL for asyncpg compatibility)
+config.set_main_option("sqlalchemy.url", _fix_db_url(settings.database_url))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
