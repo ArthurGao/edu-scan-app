@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     default_ai_provider: str = "claude"
 
     # OCR
-    ocr_provider: str = "google"
+    ocr_provider: str = "gemini"
     google_cloud_credentials_path: str = ""
     baidu_ocr_app_id: str = ""
     baidu_ocr_api_key: str = ""
