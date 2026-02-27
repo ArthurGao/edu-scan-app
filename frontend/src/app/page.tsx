@@ -28,6 +28,9 @@ export default function UploadSolvePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [editableOcrText, setEditableOcrText] = useState("");
+  const [isEditingOcr, setIsEditingOcr] = useState(false);
+  const [ocrTextModified, setOcrTextModified] = useState(false);
 
   const handleFileSelected = useCallback((file: File) => {
     setSelectedFile(file);
@@ -61,6 +64,11 @@ export default function UploadSolvePage() {
           ? await solveImage(selectedFile!, subject || undefined, undefined)
           : await solveText(problemText.trim(), subject || undefined, undefined);
       setResult(data);
+      if (data.ocr_text) {
+        setEditableOcrText(data.ocr_text);
+        setIsEditingOcr(false);
+        setOcrTextModified(false);
+      }
     } catch (err: unknown) {
       const message =
         err instanceof Error
@@ -82,6 +90,31 @@ export default function UploadSolvePage() {
       setError("Failed to save to mistake book.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleResolveWithText = async () => {
+    if (!editableOcrText.trim()) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    setMessages([]);
+    try {
+      const data = await solveText(editableOcrText.trim(), subject || undefined, undefined);
+      setResult(data);
+      if (data.ocr_text) {
+        setEditableOcrText(data.ocr_text);
+      }
+      setIsEditingOcr(false);
+      setOcrTextModified(false);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to solve. Please try again.";
+      setError(message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -292,32 +325,77 @@ export default function UploadSolvePage() {
         </div>
       )}
 
-      {/* Recognized Text (OCR result) */}
+      {/* Recognized Text (OCR result) — editable */}
       {result && result.ocr_text && inputMode === "image" && (
-        <details className="bg-white rounded-xl shadow-sm border border-gray-100">
-          <summary className="px-6 py-4 cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-2">
-            <svg
-              className="w-4 h-4 text-gray-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+          <div className="px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <svg
+                className="w-4 h-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+                />
+              </svg>
+              <span className="text-sm font-medium text-gray-700">Recognized Text</span>
+            </div>
+            <button
+              onClick={() => {
+                if (isEditingOcr) {
+                  // Cancel editing — restore original
+                  setEditableOcrText(result.ocr_text!);
+                  setOcrTextModified(false);
+                }
+                setIsEditingOcr(!isEditingOcr);
+              }}
+              className="text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
-              />
-            </svg>
-            Recognized Text
-            <span className="text-xs text-gray-400 font-normal ml-1">(click to expand)</span>
-          </summary>
-          <div className="px-6 pb-4 border-t border-gray-100 pt-3">
-            <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">
-              {result.ocr_text}
-            </p>
+              {isEditingOcr ? "Cancel" : "Edit"}
+            </button>
           </div>
-        </details>
+          <div className="px-6 pb-4 border-t border-gray-100 pt-3">
+            {isEditingOcr ? (
+              <textarea
+                value={editableOcrText}
+                onChange={(e) => {
+                  setEditableOcrText(e.target.value);
+                  setOcrTextModified(e.target.value !== result.ocr_text);
+                }}
+                rows={4}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-y"
+              />
+            ) : (
+              <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">
+                {editableOcrText}
+              </p>
+            )}
+            {isEditingOcr && ocrTextModified && (
+              <button
+                onClick={handleResolveWithText}
+                disabled={loading || !editableOcrText.trim()}
+                className="mt-3 px-4 py-2 bg-indigo-500 text-white rounded-lg font-medium text-sm hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Re-solving...
+                  </>
+                ) : (
+                  "Re-solve with edited text"
+                )}
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Result */}
