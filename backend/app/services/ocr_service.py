@@ -1,7 +1,10 @@
 import base64
+import io
 import logging
 from abc import ABC, abstractmethod
 from typing import Optional
+
+from PIL import Image, ImageOps
 
 from app.config import get_settings
 
@@ -49,6 +52,7 @@ class GeminiVisionOCRProvider(BaseOCRProvider):
                     "type": "text",
                     "text": (
                         "Extract ALL text from this image exactly as written. "
+                        "The image may be rotated or sideways — detect the correct orientation first, then read the text.\n"
                         "For math expressions, use LaTeX notation wrapped in $ delimiters. "
                         "For example: $2x + 5 = 15$, $\\frac{1}{2}$, $x^{2}$.\n"
                         "Preserve the original layout with line breaks.\n"
@@ -95,6 +99,25 @@ class MockOCRProvider(BaseOCRProvider):
         return "Find the value of x in the equation $2x + 5 = 15$."
 
 
+def fix_orientation(image_bytes: bytes) -> bytes:
+    """Fix image orientation based on EXIF data.
+
+    Phone cameras store pixels in one orientation and use EXIF tags to indicate
+    how the image should be displayed. This applies the EXIF rotation so the
+    actual pixel data matches the intended display orientation.
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        img = ImageOps.exif_transpose(img)
+        buf = io.BytesIO()
+        fmt = img.format or "JPEG"
+        img.save(buf, format=fmt)
+        return buf.getvalue()
+    except Exception:
+        # If anything goes wrong, return original bytes
+        return image_bytes
+
+
 class OCRService:
     """
     OCR service with multiple provider support.
@@ -121,7 +144,8 @@ class OCRService:
         self.provider = provider_class()
 
     async def extract_text(self, image_bytes: bytes) -> str:
-        """Extract text from image."""
+        """Extract text from image (auto-fixes EXIF orientation first)."""
+        image_bytes = fix_orientation(image_bytes)
         try:
             return await self.provider.extract_text(image_bytes)
         except NotImplementedError:
