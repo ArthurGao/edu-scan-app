@@ -10,6 +10,9 @@ _db_url = settings.database_url
 if _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+# asyncpg doesn't understand sslmode=require; convert to ssl=require
+_db_url = _db_url.replace("sslmode=", "ssl=")
+
 engine = create_async_engine(
     _db_url,
     echo=settings.debug,
