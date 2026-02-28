@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { getMistakes, updateMistake, deleteMistake } from "@/lib/api";
 import { MistakeRecord, PaginatedResponse } from "@/lib/types";
+import Pagination from "@/components/Pagination";
 
 const masteryTabs = ["All", "Unmastered", "Mastered"];
 const subjectTabs = ["All", "Math", "Physics", "Chemistry", "Biology", "English", "Chinese"];
@@ -397,28 +398,15 @@ export default function MistakesPage() {
       )}
 
       {/* Pagination */}
-      {!loading && pages > 1 && (
-        <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3">
-          <p className="text-sm text-gray-500">
-            Page {page} of {pages} ({total} total)
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => setPage((p) => Math.min(pages, p + 1))}
-              disabled={page === pages}
-              className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {!loading && (
+        <Pagination
+          page={page}
+          pages={pages}
+          total={total}
+          limit={limit}
+          label="items"
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

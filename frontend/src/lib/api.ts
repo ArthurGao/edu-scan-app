@@ -3,10 +3,30 @@ import axios from "axios";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 
+let getTokenFn: (() => Promise<string | null>) | null = null;
+
+export function setAuthTokenProvider(fn: () => Promise<string | null>) {
+  getTokenFn = fn;
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 60000,
   headers: { "Content-Type": "application/json" },
+});
+
+api.interceptors.request.use(async (config) => {
+  if (getTokenFn) {
+    try {
+      const token = await getTokenFn();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch {
+      // Silently fail - user may not be authenticated
+    }
+  }
+  return config;
 });
 
 export default api;

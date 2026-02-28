@@ -23,7 +23,6 @@ async def get_or_create_guest_user(db: AsyncSession = Depends(get_db)) -> User:
     if not guest:
         guest = User(
             email=GUEST_EMAIL,
-            password_hash="!guest-nologin",
             nickname="Guest",
             is_active=True,
         )

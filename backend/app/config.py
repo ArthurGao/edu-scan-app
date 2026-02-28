@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     langsmith_api_key: str = ""
     langsmith_project: str = "eduscan"
 
+    # Clerk Auth
+    clerk_jwks_url: str = ""
+    clerk_secret_key: str = ""
+    clerk_webhook_secret: str = ""
+    initial_admin_emails: str = ""  # comma-separated
+
     # CORS
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:19006"]
 

@@ -7,6 +7,10 @@ from app.models.user import User
 from app.models.conversation_message import ConversationMessage
 from app.models.evaluation_log import EvaluationLog
 from app.models.knowledge_base import KnowledgeBase
+from app.models.subscription_tier import SubscriptionTier
+from app.models.daily_usage import DailyUsage
+from app.models.guest_usage import GuestUsage
+from app.models.system_setting import SystemSetting
 
 __all__ = [
     "User",
@@ -18,4 +22,8 @@ __all__ = [
     "ConversationMessage",
     "EvaluationLog",
     "KnowledgeBase",
+    "SubscriptionTier",
+    "DailyUsage",
+    "GuestUsage",
+    "SystemSetting",
 ]

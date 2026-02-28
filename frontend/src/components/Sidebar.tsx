@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useUser, UserButton, SignInButton } from "@clerk/nextjs";
 
 const navItems = [
   { href: "/", label: "Upload & Solve", icon: "upload" },
@@ -92,6 +93,8 @@ function NavIcon({
 export default function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { isSignedIn, user } = useUser();
+  const isAdmin = (user?.publicMetadata as { role?: string })?.role === "admin";
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -203,13 +206,56 @@ export default function Sidebar() {
               </Link>
             );
           })}
+
+          {/* Admin link */}
+          {isAdmin && (
+            <Link
+              href="/admin"
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors mt-4 ${
+                isActive("/admin")
+                  ? "bg-purple-500/20 text-purple-400"
+                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+              }`}
+            >
+              <svg className={`w-5 h-5 ${isActive("/admin") ? "text-purple-400" : "text-gray-400"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+              </svg>
+              Admin
+              {isActive("/admin") && (
+                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-400" />
+              )}
+            </Link>
+          )}
         </nav>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-800">
-          <p className="text-xs text-gray-500">
-            Powered by AI
-          </p>
+        {/* Footer - Auth */}
+        <div className="px-4 py-4 border-t border-gray-800">
+          {isSignedIn ? (
+            <div className="flex items-center gap-3">
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: "w-8 h-8",
+                  },
+                }}
+              />
+              <div className="min-w-0">
+                <p className="text-sm text-gray-200 truncate">
+                  {user?.firstName || user?.primaryEmailAddress?.emailAddress || "User"}
+                </p>
+                <p className="text-xs text-gray-500 truncate">
+                  {user?.primaryEmailAddress?.emailAddress}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <SignInButton mode="modal">
+              <button className="w-full px-3 py-2 bg-indigo-500 text-white text-sm font-medium rounded-lg hover:bg-indigo-600 transition-colors">
+                Sign In
+              </button>
+            </SignInButton>
+          )}
         </div>
       </aside>
     </>

@@ -1,10 +1,11 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.api.deps import get_db, get_or_create_guest_user
+from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.scan import (
     ScanResponse, FollowUpRequest, FollowUpResponse,
@@ -13,6 +14,7 @@ from app.schemas.scan import (
 from app.services.scan_service import ScanService
 from app.services.conversation_service import ConversationService
 from app.services.ocr_service import OCRService
+from app.services.quota_service import check_and_increment_quota
 
 router = APIRouter()
 
@@ -36,20 +38,22 @@ async def solve_problem(
     ai_provider: Optional[str] = Form(None),
     grade_level: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    user: User = Depends(get_current_user),
 ):
     """
     Solve a homework problem from an uploaded image or typed text.
     At least one of `image` or `text` must be provided.
+    Requires authentication.
     """
     if not image and not text:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Either 'image' or 'text' must be provided.",
         )
+    quota = await check_and_increment_quota(user=user, ip_address=None, db=db)
     scan_service = ScanService(db)
     return await scan_service.scan_and_solve(
-        user_id=guest_user.id,
+        user_id=user.id,
         image=image,
         text=text,
         subject=subject,
@@ -60,6 +64,7 @@ async def solve_problem(
 
 @router.post("/solve-guest", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
 async def solve_problem_guest(
+    request: Request,
     image: Optional[UploadFile] = File(None),
     text: Optional[str] = Form(None),
     subject: Optional[str] = Form(None),
@@ -77,6 +82,8 @@ async def solve_problem_guest(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Either 'image' or 'text' must be provided.",
         )
+    ip_address = request.client.host if request.client else "unknown"
+    quota = await check_and_increment_quota(user=None, ip_address=ip_address, db=db)
     scan_service = ScanService(db)
     return await scan_service.scan_and_solve(
         user_id=guest_user.id,

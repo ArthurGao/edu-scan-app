@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getHistory, deleteHistoryItem } from "@/lib/api";
 import { ScanRecord, PaginatedResponse } from "@/lib/types";
+import Pagination from "@/components/Pagination";
 
 const subjectTabs = ["All", "Math", "Physics", "Chemistry", "Biology", "English", "Chinese"];
 
@@ -250,45 +251,15 @@ export default function HistoryPage() {
       )}
 
       {/* Pagination */}
-      {!loading && pages > 1 && (
-        <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3">
-          <p className="text-sm text-gray-500">
-            Showing {(page - 1) * limit + 1}-
-            {Math.min(page * limit, total)} of {total} results
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            {Array.from({ length: Math.min(pages, 5) }, (_, i) => {
-              const pageNum = i + 1;
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setPage(pageNum)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                    page === pageNum
-                      ? "bg-indigo-500 text-white"
-                      : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
-            <button
-              onClick={() => setPage((p) => Math.min(pages, p + 1))}
-              disabled={page === pages}
-              className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {!loading && (
+        <Pagination
+          page={page}
+          pages={pages}
+          total={total}
+          limit={limit}
+          label="results"
+          onPageChange={setPage}
+        />
       )}
     </div>
   );
