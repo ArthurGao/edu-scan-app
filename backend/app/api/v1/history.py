@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, get_or_create_guest_user
+from app.api.deps import get_db, get_current_or_guest_user
 from app.models.mistake_book import MistakeBook
 from app.models.scan_record import ScanRecord
 from app.models.user import User
@@ -28,12 +28,12 @@ async def get_history(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """Get user's scan history with optional filters."""
-    query = select(ScanRecord).where(ScanRecord.user_id == guest_user.id)
+    query = select(ScanRecord).where(ScanRecord.user_id == current_user.id)
     count_query = select(func.count(ScanRecord.id)).where(
-        ScanRecord.user_id == guest_user.id
+        ScanRecord.user_id == current_user.id
     )
 
     if subject:
@@ -76,12 +76,12 @@ async def get_history(
 async def delete_history_item(
     scan_id: int,
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """Delete a scan record, its related DB rows, and the stored image."""
     result = await db.execute(
         select(ScanRecord).where(
-            ScanRecord.id == scan_id, ScanRecord.user_id == guest_user.id
+            ScanRecord.id == scan_id, ScanRecord.user_id == current_user.id
         )
     )
     record = result.scalar_one_or_none()

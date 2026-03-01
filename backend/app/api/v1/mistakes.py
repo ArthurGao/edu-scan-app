@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db, get_or_create_guest_user
+from app.api.deps import get_db, get_current_or_guest_user
 from app.models.mistake_book import MistakeBook
 from app.models.scan_record import ScanRecord
 from app.models.user import User
@@ -24,16 +24,16 @@ async def get_mistakes(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """Get user's mistake book with optional filters."""
     query = (
         select(MistakeBook)
         .options(selectinload(MistakeBook.scan_record))
-        .where(MistakeBook.user_id == guest_user.id)
+        .where(MistakeBook.user_id == current_user.id)
     )
     count_query = select(func.count(MistakeBook.id)).where(
-        MistakeBook.user_id == guest_user.id
+        MistakeBook.user_id == current_user.id
     )
 
     if mastered is not None:
@@ -87,7 +87,7 @@ async def get_mistakes(
 async def add_to_mistakes(
     request: CreateMistakeRequest,
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """Add a scan record to mistake book."""
     # Check scan exists
@@ -101,7 +101,7 @@ async def add_to_mistakes(
     # Check not already in mistakes
     existing = await db.execute(
         select(MistakeBook).where(
-            MistakeBook.user_id == guest_user.id,
+            MistakeBook.user_id == current_user.id,
             MistakeBook.scan_id == int(request.scan_id),
         )
     )
@@ -109,7 +109,7 @@ async def add_to_mistakes(
         raise HTTPException(status_code=409, detail="Already in mistake book")
 
     mistake = MistakeBook(
-        user_id=guest_user.id,
+        user_id=current_user.id,
         scan_id=int(request.scan_id),
         subject=scan_record.subject,
         notes=request.notes,
@@ -142,13 +142,13 @@ async def update_mistake(
     mistake_id: int,
     request: UpdateMistakeRequest,
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """Update a mistake book entry (notes, mastered status)."""
     result = await db.execute(
         select(MistakeBook)
         .options(selectinload(MistakeBook.scan_record))
-        .where(MistakeBook.id == mistake_id, MistakeBook.user_id == guest_user.id)
+        .where(MistakeBook.id == mistake_id, MistakeBook.user_id == current_user.id)
     )
     mistake = result.scalar_one_or_none()
     if not mistake:
@@ -185,12 +185,12 @@ async def update_mistake(
 async def delete_mistake(
     mistake_id: int,
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """Remove an entry from mistake book."""
     result = await db.execute(
         select(MistakeBook).where(
-            MistakeBook.id == mistake_id, MistakeBook.user_id == guest_user.id
+            MistakeBook.id == mistake_id, MistakeBook.user_id == current_user.id
         )
     )
     mistake = result.scalar_one_or_none()

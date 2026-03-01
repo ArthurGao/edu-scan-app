@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useUser } from "@clerk/nextjs";
 import UploadZone from "@/components/UploadZone";
 import SolutionDisplay from "@/components/SolutionDisplay";
 import ConversationThread from "@/components/ConversationThread";
 import MathPreview from "@/components/MathPreview";
+import LandingPage from "@/components/LandingPage";
 import { extractText, solveText, addToMistakes } from "@/lib/api";
 import { ScanResponse, ConversationMessage } from "@/lib/types";
 
@@ -21,6 +23,7 @@ const subjects = [
 ];
 
 export default function UploadSolvePage() {
+  const { isSignedIn, isLoaded } = useUser();
   const [inputMode, setInputMode] = useState<InputMode>("image");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -133,6 +136,9 @@ export default function UploadSolvePage() {
     inputMode === "image"
       ? ocrReady && ocrText.trim().length > 0
       : problemText.trim().length > 0;
+
+  if (!isLoaded) return null;
+  if (!isSignedIn) return <LandingPage />;
 
   return (
     <div className="space-y-8">

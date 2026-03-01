@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.api.deps import get_db, get_or_create_guest_user
+from app.api.deps import get_db, get_current_or_guest_user
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.scan import (
@@ -71,7 +71,7 @@ async def solve_problem_guest(
     ai_provider: Optional[str] = Form(None),
     grade_level: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """
     Solve a homework problem from an uploaded image or typed text (guest mode).
@@ -86,7 +86,7 @@ async def solve_problem_guest(
     quota = await check_and_increment_quota(user=None, ip_address=ip_address, db=db)
     scan_service = ScanService(db)
     return await scan_service.scan_and_solve(
-        user_id=guest_user.id,
+        user_id=current_user.id,
         image=image,
         text=text,
         subject=subject,
@@ -124,13 +124,13 @@ async def followup(
     scan_id: int,
     request: FollowUpRequest,
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """Send a follow-up question about a scan."""
     service = ScanService(db)
     result = await service.followup(
         scan_id=scan_id,
-        user_id=guest_user.id,
+        user_id=current_user.id,
         message=request.message,
     )
     return FollowUpResponse(
@@ -143,7 +143,7 @@ async def followup(
 async def get_conversation(
     scan_id: int,
     db: AsyncSession = Depends(get_db),
-    guest_user: User = Depends(get_or_create_guest_user),
+    current_user: User = Depends(get_current_or_guest_user),
 ):
     """Get conversation history for a scan."""
     service = ConversationService(db)

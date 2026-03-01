@@ -1,6 +1,6 @@
 from typing import AsyncGenerator
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,3 +30,16 @@ async def get_or_create_guest_user(db: AsyncSession = Depends(get_db)) -> User:
         await db.commit()
         await db.refresh(guest)
     return guest
+
+
+async def get_current_or_guest_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Use Clerk-authenticated user if Bearer token present, else fall back to guest."""
+    from app.core.security import get_optional_user
+
+    user = await get_optional_user(request, db)
+    if user:
+        return user
+    return await get_or_create_guest_user(db)
