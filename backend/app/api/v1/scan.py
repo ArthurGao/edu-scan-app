@@ -82,8 +82,13 @@ async def solve_problem_guest(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Either 'image' or 'text' must be provided.",
         )
+    is_guest = current_user.email == "guest@eduscan.local"
     ip_address = request.client.host if request.client else "unknown"
-    quota = await check_and_increment_quota(user=None, ip_address=ip_address, db=db)
+    quota = await check_and_increment_quota(
+        user=None if is_guest else current_user,
+        ip_address=ip_address if is_guest else None,
+        db=db,
+    )
     scan_service = ScanService(db)
     return await scan_service.scan_and_solve(
         user_id=current_user.id,

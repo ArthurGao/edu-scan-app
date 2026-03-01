@@ -1,11 +1,12 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_or_guest_user, get_db
+from app.models.user import User
 from app.schemas.common import PaginatedResponse
-from app.schemas.formula import FormulaDetailResponse, FormulaResponse
+from app.schemas.formula import FormulaDetailResponse, FormulaResponse, SaveFormulaRequest
 from app.services.formula_service import FormulaService
 
 router = APIRouter()
@@ -29,6 +30,22 @@ async def get_formulas(
     pages = (total + limit - 1) // limit if total > 0 else 1
     return PaginatedResponse(
         items=items, total=total, page=page, pages=pages, limit=limit
+    )
+
+
+@router.post("", response_model=FormulaResponse, status_code=status.HTTP_201_CREATED)
+async def save_formula(
+    request: SaveFormulaRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_or_guest_user),
+):
+    """Save a formula to the library."""
+    service = FormulaService(db)
+    return await service.save_formula(
+        name=request.name,
+        latex=request.latex,
+        subject=request.subject or "math",
+        description=request.description,
     )
 
 

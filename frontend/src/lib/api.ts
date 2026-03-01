@@ -147,3 +147,13 @@ export async function getFormula(id: string) {
   const res = await api.get(`/formulas/${id}`);
   return res.data;
 }
+
+export async function saveFormula(data: {
+  name: string;
+  latex: string;
+  subject?: string;
+  description?: string;
+}) {
+  const res = await api.post("/formulas", data);
+  return res.data;
+}

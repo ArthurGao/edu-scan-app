@@ -11,6 +11,17 @@ body {
   color: var(--foreground);
 }
 
+/* Hide MathLive virtual keyboard container (we use manual mode) */
+.ML__keyboard,
+math-virtual-keyboard,
+[is="math-virtual-keyboard"] {
+  display: none !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  position: absolute !important;
+}
+
 /* KaTeX container styling */
 .katex-container .katex {
   font-size: 1em;

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import BigInteger, DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,7 +24,7 @@ class Formula(Base):
         ARRAY(String(100)), nullable=True
     )
     related_ids: Mapped[Optional[List[int]]] = mapped_column(
-        ARRAY(String), nullable=True
+        ARRAY(BigInteger), nullable=True
     )
     # embedding column can be added later when pgvector is set up in the database
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

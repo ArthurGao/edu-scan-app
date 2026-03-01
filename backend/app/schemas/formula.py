@@ -19,3 +19,10 @@ class FormulaResponse(BaseModel):
 class FormulaDetailResponse(FormulaResponse):
     keywords: List[str]
     related_formulas: List[FormulaResponse]
+
+
+class SaveFormulaRequest(BaseModel):
+    name: str
+    latex: str
+    subject: Optional[str] = "math"
+    description: Optional[str] = None

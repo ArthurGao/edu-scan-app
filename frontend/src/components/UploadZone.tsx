@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UploadZoneProps {
   onFileSelected: (file: File) => void;
@@ -62,6 +62,26 @@ export default function UploadZone({
     e.stopPropagation();
     fileInputRef.current?.click();
   };
+
+  // Document-level paste listener — works without needing to click/focus first
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            onFileSelected(file);
+            return;
+          }
+        }
+      }
+    };
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [onFileSelected]);
 
   // Preview state (shared between mobile and desktop)
   if (previewUrl) {
@@ -196,7 +216,7 @@ export default function UploadZone({
                 : "Drag & drop your homework image"}
             </p>
             <p className="text-sm text-gray-500 mt-1">
-              or click to browse files
+              or click to browse, or paste (Ctrl+V) an image
             </p>
             <p className="text-xs text-gray-400 mt-2">
               Supports PNG, JPG, JPEG, WEBP

@@ -2,16 +2,22 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api.v1.router import api_router
 from app.config import get_settings
+from app.database import engine
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup — fix sequences that may be out of sync with seeded data
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "SELECT setval('formulas_id_seq', COALESCE((SELECT MAX(id) FROM formulas), 0))"
+        ))
     yield
     # Shutdown
 

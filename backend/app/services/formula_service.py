@@ -112,6 +112,33 @@ class FormulaService:
             related_formulas=related,
         )
 
+    async def save_formula(
+        self,
+        name: str,
+        latex: str,
+        subject: str = "math",
+        description: Optional[str] = None,
+    ) -> FormulaResponse:
+        """Save a user-discovered formula to the library."""
+        formula = Formula(
+            name=name,
+            latex=latex,
+            subject=subject,
+            description=description,
+        )
+        self.db.add(formula)
+        await self.db.commit()
+        await self.db.refresh(formula)
+        return FormulaResponse(
+            id=str(formula.id),
+            subject=formula.subject,
+            category=formula.category,
+            name=formula.name,
+            latex=formula.latex,
+            description=formula.description,
+            grade_levels=formula.grade_levels or [],
+        )
+
     async def find_related_formulas(
         self,
         problem_text: str,

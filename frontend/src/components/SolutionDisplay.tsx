@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { ScanResponse } from "@/lib/types";
 import { renderLatex, renderMathText } from "@/lib/renderMath";
+import { saveFormula } from "@/lib/api";
 
 interface SolutionDisplayProps {
   data: ScanResponse;
@@ -86,6 +88,37 @@ export default function SolutionDisplay({
   isSaving,
 }: SolutionDisplayProps) {
   const { solution, related_formulas } = data;
+
+  // Extract unique formulas from solution steps
+  const keyFormulas = solution.steps
+    .filter((s) => s.formula)
+    .map((s, i) => ({
+      id: `step-${i}`,
+      latex: s.formula!,
+      label: s.description,
+    }));
+
+  const [savedFormulas, setSavedFormulas] = useState<Set<string>>(new Set());
+  const [savingFormula, setSavingFormula] = useState<string | null>(null);
+  const [failedFormula, setFailedFormula] = useState<string | null>(null);
+
+  const handleSaveFormula = async (id: string, latex: string, label: string) => {
+    setSavingFormula(id);
+    setFailedFormula(null);
+    try {
+      await saveFormula({
+        name: label.length > 80 ? label.slice(0, 80) + "..." : label,
+        latex,
+        subject: solution.question_type || "math",
+      });
+      setSavedFormulas((prev) => new Set(prev).add(id));
+    } catch (err) {
+      console.error("Failed to save formula:", err);
+      setFailedFormula(id);
+    } finally {
+      setSavingFormula(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -251,6 +284,101 @@ export default function SolutionDisplay({
                 }}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Key Formulas */}
+      {keyFormulas.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <svg
+              className="w-5 h-5 text-indigo-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342"
+              />
+            </svg>
+            <h3 className="text-base font-semibold text-gray-900">
+              Key Formulas
+            </h3>
+          </div>
+          <div className="space-y-3">
+            {keyFormulas.map((f) => (
+              <div
+                key={f.id}
+                className="flex items-start gap-3 bg-indigo-50 rounded-lg p-4 border border-indigo-100"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-500 mb-1">{f.label}</p>
+                  <div
+                    className="katex-container overflow-x-auto"
+                    dangerouslySetInnerHTML={{
+                      __html: renderLatex(f.latex, true),
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={() => handleSaveFormula(f.id, f.latex, f.label)}
+                  disabled={
+                    savedFormulas.has(f.id) || savingFormula === f.id
+                  }
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    savedFormulas.has(f.id)
+                      ? "bg-emerald-100 text-emerald-700"
+                      : failedFormula === f.id
+                        ? "bg-red-100 text-red-700 border border-red-200"
+                        : "bg-white text-indigo-600 hover:bg-indigo-100 border border-indigo-200"
+                  }`}
+                >
+                  {savedFormulas.has(f.id) ? (
+                    <>
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2.5}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4.5 12.75l6 6 9-13.5"
+                        />
+                      </svg>
+                      Saved
+                    </>
+                  ) : savingFormula === f.id ? (
+                    "Saving..."
+                  ) : failedFormula === f.id ? (
+                    "Failed, retry?"
+                  ) : (
+                    <>
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
+                        />
+                      </svg>
+                      Save
+                    </>
+                  )}
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}

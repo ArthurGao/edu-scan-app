@@ -63,28 +63,23 @@ export default function ConversationThread({
     }
   };
 
-  // Filter out the system message and the initial assistant summary
-  // (the solution is already shown via SolutionDisplay)
-  const visibleMessages = messages.filter((m, i) => {
-    if (m.role === "system") return false;
-    // Skip the first assistant message (initial solution summary)
-    if (m.role === "assistant" && i <= 1) return false;
-    return true;
-  });
+  // Filter out system messages only
+  const visibleMessages = messages.filter((m) => m.role !== "system");
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100">
-        <h3 className="text-base font-semibold text-gray-900">Conversation</h3>
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+      {/* Header — hidden on mobile since parent page shows tab */}
+      <div className="px-4 py-3 border-b border-gray-100 hidden lg:block">
+        <h3 className="text-sm font-semibold text-gray-900">Conversation</h3>
         <p className="text-xs text-gray-500 mt-0.5">
           Ask follow-up questions about this problem
         </p>
       </div>
 
       {/* Messages */}
-      <div className="px-6 py-4 space-y-4 max-h-96 overflow-y-auto">
+      <div className="flex-1 px-4 py-3 space-y-3 min-h-[200px] max-h-[60vh] lg:max-h-[calc(100vh-240px)] overflow-y-auto">
         {visibleMessages.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-4">
+          <p className="text-sm text-gray-400 text-center py-8">
             No conversation yet. Ask a question below.
           </p>
         )}
@@ -94,7 +89,7 @@ export default function ConversationThread({
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
+              className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
                 msg.role === "user"
                   ? "bg-indigo-500 text-white"
                   : "bg-gray-100 text-gray-800"
@@ -106,7 +101,7 @@ export default function ConversationThread({
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-xl px-4 py-2.5">
+            <div className="bg-gray-100 rounded-2xl px-3.5 py-2">
               <div className="flex gap-1">
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0.15s]" />
@@ -120,13 +115,13 @@ export default function ConversationThread({
 
       {/* Error */}
       {error && (
-        <div className="px-6 pb-2">
+        <div className="px-4 pb-2">
           <p className="text-xs text-red-500">{error}</p>
         </div>
       )}
 
       {/* Input */}
-      <div className="px-6 py-4 border-t border-gray-100">
+      <div className="px-4 py-3 border-t border-gray-100">
         <div className="flex gap-2">
           <textarea
             value={input}
@@ -139,7 +134,7 @@ export default function ConversationThread({
           <button
             onClick={handleSend}
             disabled={!input.trim() || sending}
-            className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+            className="px-3 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
           >
             <svg
               className="w-4 h-4"

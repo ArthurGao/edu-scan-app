@@ -2,6 +2,7 @@ from fastapi import Depends, Request
 from fastapi_clerk_auth import ClerkConfig, ClerkHTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.core.exceptions import AuthenticationError, AuthorizationError
@@ -34,7 +35,9 @@ async def get_current_user(
     if not clerk_id:
         raise AuthenticationError(detail="Invalid token: missing sub claim")
 
-    user = await db.scalar(select(User).where(User.clerk_id == clerk_id))
+    user = await db.scalar(
+        select(User).where(User.clerk_id == clerk_id).options(selectinload(User.tier))
+    )
 
     if not user:
         email = credentials.decoded.get("email", "")
