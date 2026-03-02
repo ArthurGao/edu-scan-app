@@ -18,6 +18,7 @@ async def get_formulas(
     category: Optional[str] = Query(None, description="Filter by category"),
     grade_level: Optional[str] = Query(None, description="Filter by grade level"),
     keyword: Optional[str] = Query(None, description="Search keyword"),
+    curriculum: Optional[str] = Query(None, description="Filter by curriculum (e.g., cambridge-igcse, ncea-2)"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
@@ -25,7 +26,7 @@ async def get_formulas(
     """Get formulas with optional filters and search."""
     service = FormulaService(db)
     items, total = await service.get_formulas(
-        subject, category, grade_level, keyword, page, limit
+        subject, category, grade_level, keyword, page, limit, curriculum=curriculum
     )
     pages = (total + limit - 1) // limit if total > 0 else 1
     return PaginatedResponse(
@@ -46,6 +47,7 @@ async def save_formula(
         latex=request.latex,
         subject=request.subject or "math",
         description=request.description,
+        curriculum=request.curriculum,
     )
 
 

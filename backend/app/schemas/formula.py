@@ -11,6 +11,7 @@ class FormulaResponse(BaseModel):
     latex: str
     description: Optional[str]
     grade_levels: List[str]
+    curriculum: List[str] = []
 
     class Config:
         from_attributes = True
@@ -26,3 +27,4 @@ class SaveFormulaRequest(BaseModel):
     latex: str
     subject: Optional[str] = "math"
     description: Optional[str] = None
+    curriculum: Optional[List[str]] = None

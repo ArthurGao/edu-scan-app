@@ -26,5 +26,8 @@ class Formula(Base):
     related_ids: Mapped[Optional[List[int]]] = mapped_column(
         ARRAY(BigInteger), nullable=True
     )
+    curriculum: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(String(50)), nullable=True
+    )
     # embedding column can be added later when pgvector is set up in the database
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
