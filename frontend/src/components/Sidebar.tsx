@@ -135,7 +135,7 @@ export default function Sidebar() {
       {/* Sidebar */}
       <aside
         className={`fixed top-0 left-0 h-full w-64 bg-gray-900 text-white z-50 transform transition-transform duration-200 ease-in-out
-          ${mobileOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:static lg:z-auto flex flex-col`}
+          ${mobileOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen lg:z-auto flex flex-col`}
       >
         {/* Logo area */}
         <div className="flex items-center gap-3 px-6 py-6 border-b border-gray-800">

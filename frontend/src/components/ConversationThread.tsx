@@ -8,12 +8,15 @@ interface ConversationThreadProps {
   scanId: string;
   messages: ConversationMessage[];
   onNewMessage?: (msg: ConversationMessage) => void;
+  /** When true, messages area has its own scroll (e.g. sticky sidebar). When false, flows with page scroll. */
+  contained?: boolean;
 }
 
 export default function ConversationThread({
   scanId,
   messages,
   onNewMessage,
+  contained = false,
 }: ConversationThreadProps) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -77,7 +80,7 @@ export default function ConversationThread({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 px-4 py-3 space-y-3 min-h-[200px] max-h-[60vh] lg:max-h-[calc(100vh-240px)] overflow-y-auto">
+      <div className={`flex-1 px-4 py-3 space-y-3 ${contained ? "min-h-[120px] max-h-[60vh] lg:max-h-[calc(100vh-240px)] overflow-y-auto" : ""}`}>
         {visibleMessages.length === 0 && (
           <p className="text-sm text-gray-400 text-center py-8">
             No conversation yet. Ask a question below.

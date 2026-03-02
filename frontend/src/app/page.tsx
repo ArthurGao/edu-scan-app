@@ -48,7 +48,6 @@ export default function UploadSolvePage() {
   const [ocrReady, setOcrReady] = useState(false);
   const [refImages, setRefImages] = useState<{ file: File; url: string }[]>([]);
   const refImageInputRef = useRef<HTMLInputElement>(null);
-  const [resultTab, setResultTab] = useState<"solution" | "chat">("solution");
 
   const loading = extracting || solving;
 
@@ -489,71 +488,26 @@ export default function UploadSolvePage() {
       {/* Result + Conversation */}
       {result && (
         <>
-          {/* Mobile: tab switcher */}
-          <div className="flex border-b border-gray-200 lg:hidden">
-            <button
-              onClick={() => setResultTab("solution")}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                resultTab === "solution"
-                  ? "border-indigo-500 text-indigo-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+          <SolutionDisplay
+            data={result}
+            onSaveToMistakes={saved ? undefined : handleSaveToMistakes}
+            isSaving={isSaving}
+          />
+          {saved && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
+              <svg className="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
               </svg>
-              Solution
-            </button>
-            <button
-              onClick={() => setResultTab("chat")}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                resultTab === "chat"
-                  ? "border-indigo-500 text-indigo-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
-              </svg>
-              Chat
-              {messages.length > 0 && (
-                <span className="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs font-bold bg-indigo-100 text-indigo-600 rounded-full">
-                  {messages.length}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Two-column on desktop, tabbed on mobile */}
-          <div className="lg:grid lg:grid-cols-[1fr_380px] lg:gap-6 lg:items-start">
-            {/* Left: Solution */}
-            <div className={`space-y-6 ${resultTab === "chat" ? "hidden lg:block" : ""}`}>
-              <SolutionDisplay
-                data={result}
-                onSaveToMistakes={saved ? undefined : handleSaveToMistakes}
-                isSaving={isSaving}
-              />
-              {saved && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
-                  <svg className="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
-                  <p className="text-sm text-emerald-700">
-                    Saved to your Mistake Book for review
-                  </p>
-                </div>
-              )}
+              <p className="text-sm text-emerald-700">
+                Saved to your Mistake Book for review
+              </p>
             </div>
-
-            {/* Right: Conversation (sticky on desktop) */}
-            <div className={`lg:sticky lg:top-4 ${resultTab === "solution" ? "hidden lg:block" : "mt-4 lg:mt-0"}`}>
-              <ConversationThread
-                scanId={result.scan_id}
-                messages={messages}
-                onNewMessage={(msg) => setMessages((prev) => [...prev, msg])}
-              />
-            </div>
-          </div>
+          )}
+          <ConversationThread
+            scanId={result.scan_id}
+            messages={messages}
+            onNewMessage={(msg) => setMessages((prev) => [...prev, msg])}
+          />
         </>
       )}
     </div>
