@@ -8,8 +8,8 @@ import SolutionDisplay from "@/components/SolutionDisplay";
 import ConversationThread from "@/components/ConversationThread";
 import MathPreview from "@/components/MathPreview";
 import LandingPage from "@/components/LandingPage";
-import { extractText, solveText, addToMistakes } from "@/lib/api";
-import { ScanResponse, ConversationMessage } from "@/lib/types";
+import { extractText, solveTextStream, addToMistakes } from "@/lib/api";
+import { ScanResponse, ConversationMessage, SSEStageEvent } from "@/lib/types";
 
 const MathInput = dynamic(() => import("@/components/MathInput"), {
   ssr: false,
@@ -44,6 +44,7 @@ export default function UploadSolvePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [solvingStage, setSolvingStage] = useState("");
   const [ocrText, setOcrText] = useState("");
   const [ocrReady, setOcrReady] = useState(false);
   const [refImages, setRefImages] = useState<{ file: File; url: string }[]>([]);
@@ -149,12 +150,27 @@ export default function UploadSolvePage() {
         ? `$${text}$`
         : text;
     setSolving(true);
+    setSolvingStage("Starting...");
     setError(null);
     setResult(null);
     setMessages([]);
     try {
-      const data = await solveText(solveInput, subject || undefined, undefined);
-      setResult(data);
+      await solveTextStream(
+        solveInput,
+        (event, data) => {
+          if (event === "stage") {
+            const stage = data as SSEStageEvent;
+            setSolvingStage(stage.message);
+          } else if (event === "complete") {
+            setResult(data as ScanResponse);
+          } else if (event === "error") {
+            const err = data as { message: string };
+            setError(err.message);
+          }
+        },
+        subject || undefined,
+        undefined,
+      );
     } catch (err: unknown) {
       const message =
         err instanceof Error
@@ -163,6 +179,7 @@ export default function UploadSolvePage() {
       setError(message);
     } finally {
       setSolving(false);
+      setSolvingStage("");
     }
   };
 
@@ -480,7 +497,7 @@ export default function UploadSolvePage() {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           </div>
-          <p className="text-gray-700 font-medium">Analyzing your problem...</p>
+          <p className="text-gray-700 font-medium">{solvingStage || "Analyzing your problem..."}</p>
           <p className="text-gray-500 text-sm mt-1">This may take a few seconds</p>
         </div>
       )}

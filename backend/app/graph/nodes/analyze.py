@@ -9,6 +9,7 @@ SUBJECT_KEYWORDS = {
     "chemistry": ["atom", "molecule", "reaction", "acid", "base", "element", "compound"],
     "biology": ["cell", "gene", "protein", "organism", "evolution", "DNA", "photosynthesis"],
     "english": ["grammar", "sentence", "verb", "noun", "essay", "paragraph", "vocabulary"],
+    # Chinese subject keywords remain in Chinese for detection (hanzi, pinyin, words, sentence-making, reading, essay, idioms)
     "chinese": ["汉字", "拼音", "词语", "造句", "阅读", "作文", "成语"],
 }
 

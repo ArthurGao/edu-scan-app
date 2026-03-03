@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { ConversationMessage } from "@/lib/types";
 import { sendFollowUp } from "@/lib/api";
+import { renderRichText } from "@/lib/renderMath";
 
 interface ConversationThreadProps {
   scanId: string;
@@ -98,7 +99,16 @@ export default function ConversationThread({
                   : "bg-gray-100 text-gray-800"
               }`}
             >
-              <p className="whitespace-pre-wrap">{msg.content}</p>
+              {msg.role === "assistant" ? (
+                <div
+                  className="rich-reply"
+                  dangerouslySetInnerHTML={{
+                    __html: renderRichText(msg.content),
+                  }}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap">{msg.content}</p>
+              )}
             </div>
           </div>
         ))}

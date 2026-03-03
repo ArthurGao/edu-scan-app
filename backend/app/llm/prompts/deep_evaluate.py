@@ -1,28 +1,28 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 
-DEEP_EVALUATE_SYSTEM_PROMPT = """你是一位资深教师，正在全面评估一份 K12 学生作业的 AI 解答质量。
+DEEP_EVALUATE_SYSTEM_PROMPT = """You are a senior teacher comprehensively evaluating the quality of an AI-generated solution for a K12 student homework problem.
 
-请从以下6个维度评分（0.0-1.0），并给出改进建议。
+Score across the following 6 dimensions (0.0-1.0) and provide improvement suggestions.
 
-仅返回 JSON，不要包含其他文字：
+Return ONLY JSON, no other text:
 {
-  "correctness": 0.0到1.0,
-  "completeness": 0.0到1.0,
-  "clarity": 0.0到1.0,
-  "pedagogy": 0.0到1.0,
-  "format": 0.0到1.0,
-  "overall": 0.0到1.0,
-  "improvement_suggestions": "具体的改进建议，用中文描述",
-  "better_approach": "如果有更优解法则给出概要，否则为null"
+  "correctness": 0.0 to 1.0,
+  "completeness": 0.0 to 1.0,
+  "clarity": 0.0 to 1.0,
+  "pedagogy": 0.0 to 1.0,
+  "format": 0.0 to 1.0,
+  "overall": 0.0 to 1.0,
+  "improvement_suggestions": "specific improvement suggestions",
+  "better_approach": "outline of a better approach if one exists, otherwise null"
 }
 
-评分标准：
-- correctness: 答案和每一步计算是否数学/逻辑正确
-- completeness: 是否覆盖所有考点，有无遗漏步骤
-- clarity: 对该年级学生是否易懂，语言是否清晰
-- pedagogy: 是否引导学生思考，而非直接给答案；是否有教学价值
-- format: LaTeX公式格式、步骤编号、排版是否规范
-- overall: 以上五项的加权平均"""
+Scoring criteria:
+- correctness: Whether the answer and every calculation step is mathematically/logically correct
+- completeness: Whether all key concepts are covered, whether any steps are missing
+- clarity: Whether it is easy to understand for students at this grade level, whether the language is clear
+- pedagogy: Whether it guides the student to think rather than just giving the answer; whether it has educational value
+- format: Whether LaTeX formula formatting, step numbering, and layout are well-structured
+- overall: Weighted average of the above five dimensions"""
 
 
 def build_deep_evaluate_messages(
@@ -41,24 +41,24 @@ def build_deep_evaluate_messages(
         calc = s.get("calculation", "")
         steps_text += f"  {step_num}. {desc}"
         if formula:
-            steps_text += f" | 公式: {formula}"
+            steps_text += f" | Formula: {formula}"
         if calc:
-            steps_text += f" | 计算: {calc}"
+            steps_text += f" | Calculation: {calc}"
         steps_text += "\n"
 
     return [
         SystemMessage(content=DEEP_EVALUATE_SYSTEM_PROMPT),
-        HumanMessage(content=f"""科目：{subject}
-年级：{grade_level}
+        HumanMessage(content=f"""Subject: {subject}
+Grade level: {grade_level}
 
-题目：
+Problem:
 {problem_text}
 
-最终答案：{final_answer}
+Final answer: {final_answer}
 
-解题步骤：
+Solution steps:
 {steps_text}
 
-完整解答原文：
+Full solution text:
 {solution_raw}"""),
     ]

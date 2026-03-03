@@ -72,6 +72,69 @@ export async function solveText(
   return res.data;
 }
 
+export async function solveTextStream(
+  text: string,
+  onEvent: (event: string, data: unknown) => void,
+  subject?: string,
+  gradeLevel?: string
+): Promise<void> {
+  const formData = new FormData();
+  formData.append("text", text);
+  if (subject) formData.append("subject", subject);
+  if (gradeLevel) formData.append("grade_level", gradeLevel);
+
+  const headers: Record<string, string> = {};
+  if (getTokenFn) {
+    try {
+      const token = await getTokenFn();
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+    } catch {
+      // not authenticated
+    }
+  }
+
+  const response = await fetch(`${API_BASE_URL}/scan/solve-guest-stream`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Request failed" }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    let currentEvent = "";
+    for (const line of lines) {
+      if (line.startsWith("event: ")) {
+        currentEvent = line.slice(7).trim();
+      } else if (line.startsWith("data: ") && currentEvent) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          onEvent(currentEvent, data);
+        } catch {
+          // skip malformed data
+        }
+        currentEvent = "";
+      }
+    }
+  }
+}
+
 export async function getScanResult(scanId: string) {
   const res = await api.get(`/scan/${scanId}`);
   return res.data;

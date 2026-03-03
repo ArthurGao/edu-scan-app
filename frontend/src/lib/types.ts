@@ -56,6 +56,25 @@ export interface FollowUpResponse {
   tokens_used: number;
 }
 
+export interface SSEStageEvent {
+  stage: string;
+  message: string;
+}
+
+export interface SSEOcrResultEvent {
+  ocr_text: string;
+}
+
+export interface SSEErrorEvent {
+  message: string;
+}
+
+export type SSEEvent =
+  | { event: "stage"; data: SSEStageEvent }
+  | { event: "ocr_result"; data: SSEOcrResultEvent }
+  | { event: "complete"; data: ScanResponse }
+  | { event: "error"; data: SSEErrorEvent };
+
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;
