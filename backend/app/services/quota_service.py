@@ -51,7 +51,7 @@ async def get_quota_status(
         usage = await _get_user_usage(user.id, db)
         used = usage.question_count if usage else 0
     elif ip_address:
-        limit = await get_setting_value("guest_daily_limit", db, default=3)
+        limit = await get_setting_value("guest_daily_limit", db, default=50)
         ip_hash = hashlib.sha256(ip_address.encode()).hexdigest()
         usage = await _get_guest_usage_by_hash(ip_hash, db)
         used = usage.question_count if usage else 0
@@ -95,7 +95,7 @@ async def _check_user_quota(user: User, db: AsyncSession) -> QuotaInfo:
 
 
 async def _check_guest_quota(ip_address: str, db: AsyncSession) -> QuotaInfo:
-    limit = await get_setting_value("guest_daily_limit", db, default=3)
+    limit = await get_setting_value("guest_daily_limit", db, default=50)
     ip_hash = hashlib.sha256(ip_address.encode()).hexdigest()
     usage = await _get_or_create_guest_usage(ip_hash, db)
 

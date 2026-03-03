@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -82,8 +83,13 @@ async def solve_problem_guest(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Either 'image' or 'text' must be provided.",
         )
+    is_guest = current_user.email == "guest@eduscan.local"
     ip_address = request.client.host if request.client else "unknown"
-    quota = await check_and_increment_quota(user=None, ip_address=ip_address, db=db)
+    quota = await check_and_increment_quota(
+        user=None if is_guest else current_user,
+        ip_address=ip_address if is_guest else None,
+        db=db,
+    )
     scan_service = ScanService(db)
     return await scan_service.scan_and_solve(
         user_id=current_user.id,
@@ -95,18 +101,62 @@ async def solve_problem_guest(
     )
 
 
-@router.get("/stream/{scan_id}")
-async def stream_solution(scan_id: str, db: AsyncSession = Depends(get_db)):
+@router.post("/solve-guest-stream", status_code=status.HTTP_200_OK)
+async def solve_problem_guest_stream(
+    request: Request,
+    image: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
+    subject: Optional[str] = Form(None),
+    ai_provider: Optional[str] = Form(None),
+    grade_level: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_or_guest_user),
+):
     """
-    Stream solution response using Server-Sent Events.
+    Solve a homework problem with SSE streaming progress.
 
-    Events:
-    - ocr_complete: OCR text extracted
-    - solution_chunk: Partial solution content
-    - complete: Solution finished
+    Events emitted:
+    - stage: Pipeline stage update (ocr, analyze, solve, verify, enrich)
+    - ocr_result: OCR text extracted early
+    - complete: Full ScanResponse
+    - error: Error message
     """
-    # TODO: Implement SSE streaming
-    pass
+    if not image and not text:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Either 'image' or 'text' must be provided.",
+        )
+    is_guest = current_user.email == "guest@eduscan.local"
+    ip_address = request.client.host if request.client else "unknown"
+    await check_and_increment_quota(
+        user=None if is_guest else current_user,
+        ip_address=ip_address if is_guest else None,
+        db=db,
+    )
+    scan_service = ScanService(db)
+
+    async def event_generator():
+        async for evt in scan_service.scan_and_solve_stream(
+            user_id=current_user.id,
+            image=image,
+            text=text,
+            subject=subject,
+            ai_provider=ai_provider,
+            grade_level=grade_level,
+        ):
+            event_type = evt["event"]
+            data = json.dumps(evt["data"], ensure_ascii=False)
+            yield f"event: {event_type}\ndata: {data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{scan_id}", response_model=ScanResponse)

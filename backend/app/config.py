@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     clerk_webhook_secret: str = ""
     initial_admin_emails: str = ""  # comma-separated
 
+    # Rate Limiting (per-IP sliding window via Redis)
+    rate_limit_enabled: bool = True
+    rate_limit_global_rpm: int = 60  # requests per minute for most endpoints
+    rate_limit_solve_rpm: int = 6  # /scan/solve and /scan/solve-guest
+    rate_limit_auth_rpm: int = 10  # /auth/login, /auth/register
+    rate_limit_followup_rpm: int = 15  # /scan/{id}/followup
+
     # CORS
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:19006"]
 

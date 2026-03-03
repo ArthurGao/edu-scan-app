@@ -1,18 +1,18 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 
-VERIFY_SYSTEM_PROMPT = """你是一个数学/理科验算助手。请独立验算以下题目的答案是否正确。
+VERIFY_SYSTEM_PROMPT = """You are a math/science verification assistant. Please independently verify whether the given answer to the following problem is correct.
 
-要求：
-1. 自己独立计算出正确答案
-2. 对比给出的答案
-3. 检查关键步骤是否有逻辑错误
+Requirements:
+1. Independently calculate the correct answer yourself
+2. Compare it with the given answer
+3. Check key steps for logical errors
 
-仅返回 JSON，不要包含其他文字：
+Return ONLY JSON, no other text:
 {
-  "independent_answer": "你算出的答案",
-  "is_correct": true或false,
-  "error_description": "如果错误，说明哪步出错；如果正确则为null",
-  "confidence": 0.0到1.0的数字
+  "independent_answer": "your calculated answer",
+  "is_correct": true or false,
+  "error_description": "if incorrect, explain which step went wrong; if correct, null",
+  "confidence": a number from 0.0 to 1.0
 }"""
 
 
@@ -24,13 +24,13 @@ def build_verify_messages(
 ) -> list:
     return [
         SystemMessage(content=VERIFY_SYSTEM_PROMPT),
-        HumanMessage(content=f"""科目：{subject}
+        HumanMessage(content=f"""Subject: {subject}
 
-题目：
+Problem:
 {problem_text}
 
-给出的答案：{final_answer}
+Given answer: {final_answer}
 
-解题步骤摘要：
+Solution steps summary:
 {steps_summary}"""),
     ]

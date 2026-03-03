@@ -21,6 +21,7 @@ class FormulaService:
         keyword: Optional[str] = None,
         page: int = 1,
         limit: int = 20,
+        curriculum: Optional[str] = None,
     ) -> tuple[List[FormulaResponse], int]:
         """
         Get formulas with optional filters.
@@ -40,6 +41,9 @@ class FormulaService:
         if grade_level:
             query = query.where(Formula.grade_levels.any(grade_level))
             count_query = count_query.where(Formula.grade_levels.any(grade_level))
+        if curriculum:
+            query = query.where(Formula.curriculum.any(curriculum))
+            count_query = count_query.where(Formula.curriculum.any(curriculum))
         if keyword:
             kw_filter = or_(
                 Formula.name.ilike(f"%{keyword}%"),
@@ -65,6 +69,7 @@ class FormulaService:
                 latex=f.latex,
                 description=f.description,
                 grade_levels=f.grade_levels or [],
+                curriculum=f.curriculum or [],
             )
             for f in formulas
         ]
@@ -96,6 +101,7 @@ class FormulaService:
                     latex=f.latex,
                     description=f.description,
                     grade_levels=f.grade_levels or [],
+                    curriculum=f.curriculum or [],
                 )
                 for f in rel_formulas
             ]
@@ -108,8 +114,39 @@ class FormulaService:
             latex=formula.latex,
             description=formula.description,
             grade_levels=formula.grade_levels or [],
+            curriculum=formula.curriculum or [],
             keywords=formula.keywords or [],
             related_formulas=related,
+        )
+
+    async def save_formula(
+        self,
+        name: str,
+        latex: str,
+        subject: str = "math",
+        description: Optional[str] = None,
+        curriculum: Optional[list] = None,
+    ) -> FormulaResponse:
+        """Save a user-discovered formula to the library."""
+        formula = Formula(
+            name=name,
+            latex=latex,
+            subject=subject,
+            description=description,
+            curriculum=curriculum,
+        )
+        self.db.add(formula)
+        await self.db.commit()
+        await self.db.refresh(formula)
+        return FormulaResponse(
+            id=str(formula.id),
+            subject=formula.subject,
+            category=formula.category,
+            name=formula.name,
+            latex=formula.latex,
+            description=formula.description,
+            grade_levels=formula.grade_levels or [],
+            curriculum=formula.curriculum or [],
         )
 
     async def find_related_formulas(

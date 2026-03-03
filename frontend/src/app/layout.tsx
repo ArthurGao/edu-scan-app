@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import "mathlive/fonts.css";
 import "./globals.css";
 import AuthProvider from "@/components/AuthProvider";
 import AppShell from "@/components/AppShell";

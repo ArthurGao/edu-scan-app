@@ -48,22 +48,23 @@ OCR → ANALYZE → RETRIEVE → SOLVE → QUICK_VERIFY → (conditional) → EN
 ### Prompt Design
 
 ```
-你是一个数学/理科验算助手。请独立验算以下题目的答案是否正确。
+You are a math/science verification assistant. Please independently verify
+whether the given answer to the following problem is correct.
 
-题目：{ocr_text}
-给出的答案：{final_answer}
-解题步骤摘要：{steps_summary}
+Problem: {ocr_text}
+Given answer: {final_answer}
+Solution steps summary: {steps_summary}
 
-要求：
-1. 自己独立计算出正确答案
-2. 对比给出的答案
-3. 检查关键步骤是否有逻辑错误
+Requirements:
+1. Independently calculate the correct answer yourself
+2. Compare it with the given answer
+3. Check key steps for logical errors
 
-返回 JSON：
+Return JSON:
 {
-  "independent_answer": "你算出的答案",
+  "independent_answer": "your calculated answer",
   "is_correct": true/false,
-  "error_description": "如果错误，说明哪步出错",
+  "error_description": "if incorrect, explain which step went wrong",
   "confidence": 0.0-1.0
 }
 ```
@@ -118,7 +119,7 @@ Fired as a background task after `ENRICH` completes and response is sent to user
   "pedagogy": 0.85,
   "format": 0.9,
   "overall": 0.88,
-  "improvement_suggestions": "第2步可以补充为什么要移项的原因",
+  "improvement_suggestions": "Step 2 could explain why we transpose terms",
   "better_approach": null
 }
 ```
@@ -163,9 +164,9 @@ class SolutionResponse(BaseModel):
 
 | Status | Condition | Frontend Display |
 |--------|-----------|-----------------|
-| `verified` | quick_verify pass AND confidence >= 0.8 | Green badge "已验证 ✓" |
+| `verified` | quick_verify pass AND confidence >= 0.8 | Green badge "Verified ✓" |
 | `unverified` | Verification timeout or skipped | No badge shown |
-| `caution` | Failed after max retries | Yellow badge "建议核实 ⚠" |
+| `caution` | Failed after max retries | Yellow badge "Needs Review ⚠" |
 
 ## 6. Data Accumulation & Optimization
 

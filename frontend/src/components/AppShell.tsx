@@ -13,11 +13,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // Authenticated: sidebar + content layout
+  // Authenticated: sidebar + content layout (body scrolls, sidebar sticks)
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {children}
         </div>

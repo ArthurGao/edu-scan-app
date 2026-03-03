@@ -1,7 +1,8 @@
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import UploadFile
 from sqlalchemy import select
@@ -52,7 +53,7 @@ class ScanService:
             image.file.seek(0)
             image_bytes = await image.read()
 
-        # 3. Run the LangGraph pipeline
+        # Run the LangGraph pipeline
         result = await self._graph.ainvoke({
             "image_bytes": image_bytes,
             "image_url": image_url,
@@ -64,7 +65,97 @@ class ScanService:
             "attempt_count": 0,
         })
 
-        # 4. Persist scan record
+        return await self._persist_and_build_response(
+            result, user_id, image_url, grade_level
+        )
+
+    # -- Node-name → user-facing stage messages --------------------------
+    _NODE_STAGES: dict[str, str] = {
+        "ocr": "Extracting text from image...",
+        "analyze": "Analyzing problem...",
+        "retrieve": "Searching knowledge base...",
+        "solve": "Generating solution...",
+        "quick_verify": "Verifying answer...",
+        "enrich": "Enriching solution...",
+    }
+
+    async def scan_and_solve_stream(
+        self,
+        user_id: int,
+        image: Optional[UploadFile] = None,
+        text: Optional[str] = None,
+        subject: Optional[str] = None,
+        ai_provider: Optional[str] = None,
+        grade_level: Optional[str] = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream the solve pipeline, yielding SSE-ready dicts per node."""
+        image_url: Optional[str] = None
+        image_bytes: Optional[bytes] = None
+
+        if image:
+            image_url = await storage_service.upload_image(image)
+            image.file.seek(0)
+            image_bytes = await image.read()
+
+        initial_input = {
+            "image_bytes": image_bytes,
+            "image_url": image_url,
+            "input_text": text,
+            "user_id": user_id,
+            "subject": subject,
+            "grade_level": grade_level,
+            "preferred_provider": ai_provider,
+            "attempt_count": 0,
+        }
+
+        accumulated: dict[str, Any] = {}
+
+        try:
+            async for chunk in self._graph.astream(
+                initial_input, stream_mode="updates"
+            ):
+                for node_name, update in chunk.items():
+                    accumulated.update(update)
+
+                    if node_name in self._NODE_STAGES:
+                        yield {
+                            "event": "stage",
+                            "data": {
+                                "stage": node_name,
+                                "message": self._NODE_STAGES[node_name],
+                            },
+                        }
+
+                    if node_name == "ocr" and "ocr_text" in update:
+                        yield {
+                            "event": "ocr_result",
+                            "data": {"ocr_text": update["ocr_text"]},
+                        }
+
+            # -- Pipeline complete — persist (mirrors scan_and_solve) -------
+            result = accumulated
+            response = await self._persist_and_build_response(
+                result, user_id, image_url, grade_level
+            )
+            yield {
+                "event": "complete",
+                "data": response.model_dump(mode="json"),
+            }
+
+        except Exception as e:
+            logger.exception("Streaming solve failed")
+            yield {"event": "error", "data": {"message": str(e)}}
+
+    # -- Shared persistence helper --------------------------------------
+
+    async def _persist_and_build_response(
+        self,
+        result: dict[str, Any],
+        user_id: int,
+        image_url: Optional[str],
+        grade_level: Optional[str],
+    ) -> ScanResponse:
+        """Persist scan record, solution, conversation and return response."""
         scan_record = ScanRecord(
             user_id=user_id,
             image_url=image_url,
@@ -78,7 +169,6 @@ class ScanService:
         self.db.add(scan_record)
         await self.db.flush()
 
-        # 5. Compute verification status from quick_verify results
         final = result.get("final_solution", {})
         verify_passed = result.get("verify_passed")
         verify_confidence = result.get("verify_confidence", 0.0)
@@ -90,7 +180,6 @@ class ScanService:
         else:
             verification_status = "unverified"
 
-        # 6. Persist solution
         solution = Solution(
             scan_id=scan_record.id,
             ai_provider=result.get("llm_provider", "unknown"),
@@ -109,12 +198,10 @@ class ScanService:
         )
         self.db.add(solution)
 
-        # 6. Save initial conversation messages
         await self._conversation_service.add_message(
             scan_record.id, "system",
             f"Problem: {result.get('ocr_text', '')}",
         )
-        # Build a readable summary instead of storing the raw JSON
         summary_parts = []
         if final.get("final_answer"):
             summary_parts.append(f"Answer: {final['final_answer']}")
@@ -125,15 +212,16 @@ class ScanService:
                 step_num = s.get("step", "")
                 desc = s.get("description", "")
                 summary_parts.append(f"  {step_num}. {desc}")
-        assistant_summary = "\n".join(summary_parts) if summary_parts else result.get("solution_raw", "")
+        assistant_summary = (
+            "\n".join(summary_parts) if summary_parts
+            else result.get("solution_raw", "")
+        )
         await self._conversation_service.add_message(
-            scan_record.id, "assistant",
-            assistant_summary,
+            scan_record.id, "assistant", assistant_summary,
         )
 
         await self.db.commit()
 
-        # 7. Generate embedding (best-effort, non-blocking)
         try:
             await self._embedding_service.embed_scan_record(
                 scan_record.id, result.get("ocr_text", "")
@@ -142,7 +230,6 @@ class ScanService:
         except Exception:
             pass
 
-        # 8. Fire async deep evaluation (non-blocking)
         asyncio.create_task(
             self._run_deep_evaluate_background(
                 solution_id=solution.id,
@@ -155,7 +242,6 @@ class ScanService:
             )
         )
 
-        # 9. Build response
         return ScanResponse(
             scan_id=str(scan_record.id),
             ocr_text=result.get("ocr_text", ""),
