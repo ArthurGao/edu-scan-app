@@ -1,18 +1,26 @@
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
+from app.database import AsyncSessionLocal
 from app.graph.solve_graph import solve_graph
 from app.graph.followup_graph import followup_graph
 from app.graph.nodes.deep_evaluate import run_deep_evaluate
+from app.llm.embeddings import embed_text
+from app.llm.prompts.framework import build_framework_messages
+from app.llm.registry import get_llm
 from app.models.scan_record import ScanRecord
+from app.models.semantic_cache import SemanticCache
 from app.models.solution import Solution
 from app.schemas.scan import ScanResponse, SolutionResponse, SolutionStep
 from app.services.conversation_service import ConversationService
@@ -22,6 +30,11 @@ from app.services.storage_service import StorageService
 logger = logging.getLogger(__name__)
 
 storage_service = StorageService()
+_settings = get_settings()
+
+
+def _input_hash(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 class ScanService:
@@ -230,17 +243,40 @@ class ScanService:
         except Exception:
             pass
 
-        asyncio.create_task(
-            self._run_deep_evaluate_background(
-                solution_id=solution.id,
-                problem_text=result.get("ocr_text", ""),
-                solution_raw=result.get("solution_raw", ""),
-                final_answer=final.get("final_answer", ""),
-                steps=final.get("steps", []),
-                subject=result.get("detected_subject", "math"),
-                grade_level=grade_level or "middle school",
+        # Layer 4 only: write solution to cache then generate framework
+        cache_layer = result.get("cache_layer", 4)
+        _LAYER_LABELS = {1: "L1-Redis(exact)", 2: "L2-pgvector(≥0.95)", 3: "L3-framework(0.80-0.95)", 4: "L4-full-solve"}
+        logger.info(">>> CACHE RESULT: %s | scan_id=%s", _LAYER_LABELS.get(cache_layer, f"L{cache_layer}"), scan_record.id)
+
+        # Only deep-evaluate fresh LLM solutions (not cache hits)
+        if cache_layer == 4:
+            asyncio.create_task(
+                self._run_deep_evaluate_background(
+                    solution_id=solution.id,
+                    problem_text=result.get("ocr_text", ""),
+                    solution_raw=result.get("solution_raw", ""),
+                    final_answer=final.get("final_answer", ""),
+                    steps=final.get("steps", []),
+                    subject=result.get("detected_subject", "math"),
+                    grade_level=grade_level or "middle school",
+                )
             )
-        )
+        ocr_text = result.get("ocr_text", "")
+        if cache_layer == 4 and ocr_text and final:
+            asyncio.create_task(
+                self._write_to_cache(
+                    ocr_text=ocr_text,
+                    response=final,
+                    model_used=result.get("llm_model", "unknown"),
+                )
+            )
+            asyncio.create_task(
+                self._generate_framework_background(
+                    ocr_text=ocr_text,
+                    solution_raw=result.get("solution_raw", ""),
+                    subject=result.get("detected_subject", "math"),
+                )
+            )
 
         return ScanResponse(
             scan_id=str(scan_record.id),
@@ -258,6 +294,72 @@ class ScanService:
             related_formulas=[],
             created_at=scan_record.created_at or datetime.utcnow(),
         )
+
+    async def _write_to_cache(self, ocr_text: str, response: dict, model_used: str) -> None:
+        """Write a Layer 4 solution to Redis + semantic_cache (background-safe, own session)."""
+        if not ocr_text:
+            return
+        cache_key = _input_hash(ocr_text)
+
+        # Layer 1: Redis
+        try:
+            from redis.asyncio import from_url as redis_from_url
+            redis = redis_from_url(_settings.redis_url, decode_responses=True)
+            await redis.set(f"solve:{cache_key}", json.dumps(response))
+            await redis.aclose()
+        except Exception as e:
+            logger.warning("Cache Redis write failed: %s", e)
+
+        # Layer 2/3: semantic_cache
+        try:
+            embedding = await embed_text(ocr_text)
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            async with AsyncSessionLocal() as db:
+                stmt = pg_insert(SemanticCache).values(
+                    input_hash=cache_key,
+                    input_text=ocr_text,
+                    embedding=embedding,
+                    response=response,
+                    model_used=model_used,
+                ).on_conflict_do_nothing(index_elements=["input_hash"])
+                await db.execute(stmt)
+                await db.commit()
+        except Exception as e:
+            logger.warning("Cache semantic_cache write failed: %s", e)
+
+    async def _generate_framework_background(
+        self, ocr_text: str, solution_raw: str, subject: str
+    ) -> None:
+        """Generate solution_framework via Haiku and store in semantic_cache (background)."""
+        if not ocr_text or not solution_raw:
+            return
+        try:
+            # Use fast model — framework generation doesn't need Sonnet
+            llm = get_llm("fast")
+            messages = build_framework_messages(ocr_text, solution_raw, subject)
+            result = await llm.ainvoke(messages)
+
+            try:
+                framework = json.loads(result.content)
+            except json.JSONDecodeError:
+                content = result.content
+                start, end = content.find("{"), content.rfind("}") + 1
+                if start >= 0 and end > start:
+                    framework = json.loads(content[start:end])
+                else:
+                    return  # Unparseable — skip
+
+            cache_key = _input_hash(ocr_text)
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(SemanticCache)
+                    .where(SemanticCache.input_hash == cache_key)
+                    .values(solution_framework=framework)
+                )
+                await db.commit()
+            logger.info("Framework generated for cache key %s…", cache_key[:8])
+        except Exception as e:
+            logger.warning("Background framework generation failed: %s", e)
 
     async def _run_deep_evaluate_background(
         self,

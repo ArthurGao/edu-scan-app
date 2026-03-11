@@ -3,6 +3,17 @@ from app.graph.state import SolveState
 from app.config import get_settings
 
 
+def route_after_cache(state: SolveState) -> Literal["hit", "continue"]:
+    """Route after check_cache node.
+
+    'hit'      → Layer 1/2 cache hit; final_solution already set, skip to END.
+    'continue' → Layer 3 (framework injected) or Layer 4 (miss); proceed normally.
+    """
+    if state.get("cache_hit"):
+        return "hit"
+    return "continue"
+
+
 def should_retry(state: SolveState) -> Literal["retry", "enrich", "fallback"]:
     """Decide whether to retry, fallback, or accept the solution."""
     settings = get_settings()

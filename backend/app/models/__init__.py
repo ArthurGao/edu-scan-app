@@ -11,6 +11,7 @@ from app.models.subscription_tier import SubscriptionTier
 from app.models.daily_usage import DailyUsage
 from app.models.guest_usage import GuestUsage
 from app.models.system_setting import SystemSetting
+from app.models.semantic_cache import SemanticCache
 
 __all__ = [
     "User",
@@ -26,4 +27,5 @@ __all__ = [
     "DailyUsage",
     "GuestUsage",
     "SystemSetting",
+    "SemanticCache",
 ]

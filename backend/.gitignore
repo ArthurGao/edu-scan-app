@@ -25,5 +25,9 @@ uploads/
 *.log
 server.log
 
+# Seed generation progress (resume files — safe to delete after committing migration)
+scripts/.progress_015.jsonl
+scripts/.progress_016.jsonl
+
 # OS
 .DS_Store

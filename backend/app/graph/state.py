@@ -49,6 +49,11 @@ class SolveState(TypedDict, total=False):
     final_solution: dict
     related_formula_ids: list[int]
 
+    # Cache
+    cache_hit: Optional[bool]         # True = response already in final_solution
+    cache_layer: Optional[int]        # 1/2=hit, 3=framework reuse, 4=full solve
+    solution_framework: Optional[dict]  # framework from Layer 3 cache entry
+
     # Errors
     error: Optional[str]
 

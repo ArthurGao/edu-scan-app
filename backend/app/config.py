@@ -51,9 +51,9 @@ class Settings(BaseSettings):
     strong_model_gemini: str = "gemini-2.5-flash"
     fast_model_gemini: str = "gemini-2.5-flash-lite"
 
-    # Embeddings
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dimension: int = 1536
+    # Embeddings (Google gemini-embedding-001 default, OpenAI fallback)
+    embedding_model: str = "models/gemini-embedding-001"
+    embedding_dimension: int = 768
 
     # LangGraph
     max_solve_attempts: int = 3
