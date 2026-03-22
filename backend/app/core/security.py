@@ -40,21 +40,46 @@ async def get_current_user(
     )
 
     if not user:
-        email = credentials.decoded.get("email", "")
-        admin_emails = [e.strip() for e in settings.initial_admin_emails.split(",") if e.strip()]
-        role = "admin" if email in admin_emails else "user"
-
-        default_tier_id = await _get_default_tier_id(db)
-        user = User(
-            clerk_id=clerk_id,
-            email=email,
-            nickname=credentials.decoded.get("name"),
-            role=role,
-            tier_id=default_tier_id,
+        # Extract email from Clerk JWT (location varies by Clerk version)
+        decoded = credentials.decoded
+        email = (
+            decoded.get("email")
+            or decoded.get("primary_email")
+            or decoded.get("email_address")
+            or ""
         )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        if not email and isinstance(decoded.get("email_addresses"), list):
+            addrs = decoded["email_addresses"]
+            if addrs:
+                email = addrs[0].get("email_address", "") if isinstance(addrs[0], dict) else str(addrs[0])
+
+        # Try to find a seeded user by email and link clerk_id (e.g. admin from migration)
+        if email:
+            user = await db.scalar(
+                select(User).where(User.email == email).options(selectinload(User.tier))
+            )
+            if user:
+                user.clerk_id = clerk_id
+                user.nickname = user.nickname or decoded.get("name")
+                await db.commit()
+                await db.refresh(user)
+
+        # Still no user — create a new one
+        if not user:
+            admin_emails = [e.strip() for e in settings.initial_admin_emails.split(",") if e.strip()]
+            role = "admin" if email in admin_emails else "user"
+
+            default_tier_id = await _get_default_tier_id(db)
+            user = User(
+                clerk_id=clerk_id,
+                email=email,
+                nickname=decoded.get("name"),
+                role=role,
+                tier_id=default_tier_id,
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
 
     if not user.is_active:
         raise AuthenticationError(detail="Account is deactivated")

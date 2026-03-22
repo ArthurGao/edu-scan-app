@@ -12,6 +12,7 @@ from app.models.daily_usage import DailyUsage
 from app.models.guest_usage import GuestUsage
 from app.models.system_setting import SystemSetting
 from app.models.semantic_cache import SemanticCache
+from app.models.exam_paper import ExamPaper, PracticeQuestion
 
 __all__ = [
     "User",
@@ -28,4 +29,6 @@ __all__ = [
     "GuestUsage",
     "SystemSetting",
     "SemanticCache",
+    "ExamPaper",
+    "PracticeQuestion",
 ]

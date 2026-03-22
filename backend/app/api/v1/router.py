@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import admin, auth, formulas, history, mistakes, scan, stats, webhooks
+from app.api.v1 import admin, auth, exams, formulas, history, mistakes, scan, stats, webhooks
 
 api_router = APIRouter()
 
@@ -12,3 +12,4 @@ api_router.include_router(history.router, prefix="/history", tags=["History"])
 api_router.include_router(mistakes.router, prefix="/mistakes", tags=["Mistake Book"])
 api_router.include_router(formulas.router, prefix="/formulas", tags=["Formulas"])
 api_router.include_router(stats.router, prefix="/stats", tags=["Learning Stats"])
+api_router.include_router(exams.router, prefix="/exams", tags=["Exam Papers"])
