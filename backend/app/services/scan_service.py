@@ -26,6 +26,7 @@ from app.schemas.scan import ScanResponse, SolutionResponse, SolutionStep
 from app.services.conversation_service import ConversationService
 from app.services.embedding_service import EmbeddingService
 from app.services.storage_service import StorageService
+from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,18 @@ class ScanService:
         grade_level: Optional[str] = None,
     ) -> ScanResponse:
         """Process uploaded image or typed text through LangGraph pipeline."""
+        # -- Tier check: usage limit gate --
+        sub_service = SubscriptionService(self.db)
+        user_tier = await sub_service.get_user_tier(user_id)
+        if user_tier == "free":
+            allowed, remaining = await sub_service.check_usage_limit(user_id)
+            if not allowed:
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=429,
+                    detail={"error": "daily_limit_exceeded", "remaining": 0},
+                )
+
         image_url: Optional[str] = None
         image_bytes: Optional[bytes] = None
 
@@ -75,12 +88,18 @@ class ScanService:
             "subject": subject,
             "grade_level": grade_level,
             "preferred_provider": ai_provider,
+            "user_tier": user_tier,
             "attempt_count": 0,
         })
 
-        return await self._persist_and_build_response(
+        response = await self._persist_and_build_response(
             result, user_id, image_url, grade_level
         )
+
+        # -- Increment usage after successful solve --
+        await sub_service.increment_usage(user_id)
+
+        return response
 
     # -- Node-name → user-facing stage messages --------------------------
     _NODE_STAGES: dict[str, str] = {
@@ -102,6 +121,18 @@ class ScanService:
         grade_level: Optional[str] = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream the solve pipeline, yielding SSE-ready dicts per node."""
+        # -- Tier check: usage limit gate --
+        sub_service = SubscriptionService(self.db)
+        user_tier = await sub_service.get_user_tier(user_id)
+        if user_tier == "free":
+            allowed, remaining = await sub_service.check_usage_limit(user_id)
+            if not allowed:
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=429,
+                    detail={"error": "daily_limit_exceeded", "remaining": 0},
+                )
+
         image_url: Optional[str] = None
         image_bytes: Optional[bytes] = None
 
@@ -118,6 +149,7 @@ class ScanService:
             "subject": subject,
             "grade_level": grade_level,
             "preferred_provider": ai_provider,
+            "user_tier": user_tier,
             "attempt_count": 0,
         }
 
@@ -150,6 +182,10 @@ class ScanService:
             response = await self._persist_and_build_response(
                 result, user_id, image_url, grade_level
             )
+
+            # -- Increment usage after successful solve --
+            await sub_service.increment_usage(user_id)
+
             yield {
                 "event": "complete",
                 "data": response.model_dump(mode="json"),

@@ -9,7 +9,9 @@ function QuestionsContent() {
   const searchParams = useSearchParams();
   const initialExamId = searchParams.get("exam_id") || "";
 
-  const [exams, setExams] = useState<ExamPaper[]>([]);
+  const [allExams, setAllExams] = useState<ExamPaper[]>([]);
+  const [levelFilter, setLevelFilter] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("");
   const [selectedExam, setSelectedExam] = useState(initialExamId);
   const [typeFilter, setTypeFilter] = useState("");
   const [questionNumFilter, setQuestionNumFilter] = useState("");
@@ -20,8 +22,19 @@ function QuestionsContent() {
 
   // Load exam list
   useEffect(() => {
-    getExamPapers({ limit: 100 }).then((r) => setExams(r.items)).catch(() => {});
+    getExamPapers({ limit: 100 }).then((r) => setAllExams(r.items)).catch(() => {});
   }, []);
+
+  // Derive unique levels and subjects
+  const levels = [...new Set(allExams.map((e) => e.level))].sort();
+  const subjects = [...new Set(allExams.map((e) => e.subject))].sort();
+
+  // Filter exams by level and subject
+  const filteredExams = allExams.filter((e) => {
+    if (levelFilter && e.level !== Number(levelFilter)) return false;
+    if (subjectFilter && e.subject !== subjectFilter) return false;
+    return true;
+  });
 
   // Load questions
   const load = useCallback(async () => {
@@ -48,39 +61,67 @@ function QuestionsContent() {
     <div className="max-w-6xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Question Bank</h1>
 
-      {/* Filters */}
+      {/* Filters row 1: Level, Subject, Exam */}
       <div className="flex flex-wrap gap-3">
+        <select
+          value={levelFilter}
+          onChange={(e) => { setLevelFilter(e.target.value); setSelectedExam(""); setPage(1); }}
+          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+        >
+          <option value="">All levels</option>
+          {levels.map((l) => (
+            <option key={l} value={l}>Level {l}</option>
+          ))}
+        </select>
+        <select
+          value={subjectFilter}
+          onChange={(e) => { setSubjectFilter(e.target.value); setSelectedExam(""); setPage(1); }}
+          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+        >
+          <option value="">All subjects</option>
+          {subjects.map((s) => (
+            <option key={s} value={s} className="capitalize">{s}</option>
+          ))}
+        </select>
         <select
           value={selectedExam}
           onChange={(e) => { setSelectedExam(e.target.value); setPage(1); }}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 min-w-[240px]"
+          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 min-w-[280px]"
         >
-          <option value="">Select an exam paper...</option>
-          {exams.map((e) => (
-            <option key={e.id} value={e.id}>{e.title} ({e.year}) — {e.total_questions}q</option>
-          ))}
-        </select>
-        <select
-          value={typeFilter}
-          onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-        >
-          <option value="">All types</option>
-          <option value="numeric">Numeric</option>
-          <option value="multichoice">Multiple choice</option>
-          <option value="explanation">Explanation</option>
-        </select>
-        <select
-          value={questionNumFilter}
-          onChange={(e) => { setQuestionNumFilter(e.target.value); setPage(1); }}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-        >
-          <option value="">All questions</option>
-          {["1", "2", "3", "4", "5"].map((n) => (
-            <option key={n} value={n}>Question {n}</option>
+          <option value="">Select an exam paper ({filteredExams.length})...</option>
+          {filteredExams.map((e) => (
+            <option key={e.id} value={e.id}>
+              L{e.level} {e.subject} — {e.title} ({e.year}) [{e.total_questions}q]
+            </option>
           ))}
         </select>
       </div>
+
+      {/* Filters row 2: Question type, Question number */}
+      {selectedExam && (
+        <div className="flex flex-wrap gap-3">
+          <select
+            value={typeFilter}
+            onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+          >
+            <option value="">All types</option>
+            <option value="numeric">Numeric</option>
+            <option value="multichoice">Multiple choice</option>
+            <option value="explanation">Explanation</option>
+          </select>
+          <select
+            value={questionNumFilter}
+            onChange={(e) => { setQuestionNumFilter(e.target.value); setPage(1); }}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+          >
+            <option value="">All questions</option>
+            {["1", "2", "3", "4", "5"].map((n) => (
+              <option key={n} value={n}>Question {n}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {!selectedExam ? (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center text-gray-400">

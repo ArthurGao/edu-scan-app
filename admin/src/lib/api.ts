@@ -2,7 +2,7 @@ import axios from "axios";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1",
-  timeout: 120_000,
+  timeout: 600_000, // 10 minutes — crawl can take a while
 });
 
 let tokenProvider: (() => Promise<string | null>) | null = null;
@@ -68,6 +68,7 @@ export interface ExamPaper {
   title: string;
   year: number;
   subject: string;
+  level: number;
   exam_code: string;
   paper_type: string;
   language: string;
@@ -164,6 +165,7 @@ export async function updateUser(
 export async function getExamPapers(params?: {
   year?: number;
   subject?: string;
+  level?: number;
   language?: string;
   page?: number;
   limit?: number;
@@ -181,6 +183,7 @@ export async function crawlExams(data: {
   url: string;
   language?: string;
   subject?: string;
+  level?: number;
   exam_code?: string;
 }): Promise<CrawlResponse> {
   return (await api.post("/exams/crawl", data)).data;

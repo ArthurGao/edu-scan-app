@@ -220,3 +220,34 @@ export async function saveFormula(data: {
   const res = await api.post("/formulas", data);
   return res.data;
 }
+
+// Exams
+export async function getExams(params?: {
+  year?: number;
+  subject?: string;
+  level?: number;
+  language?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const res = await api.get("/exams", { params });
+  return res.data;
+}
+
+export async function getExamQuestions(
+  examId: string,
+  params?: {
+    question_type?: string;
+    question_number?: string;
+    page?: number;
+    limit?: number;
+  }
+) {
+  const res = await api.get(`/exams/${examId}/questions`, { params });
+  return res.data;
+}
+
+export async function revealAnswer(examId: string, questionId: string) {
+  const res = await api.post(`/exams/${examId}/questions/${questionId}/answer`);
+  return res.data;
+}

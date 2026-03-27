@@ -19,6 +19,7 @@ class CrawledPDF:
     language: str
     pdf_type: str  # "exam" | "schedule" | "report" | "exemplar" | "other"
     event: str = ""  # "event-1", "event-2", "week-1", "week-2"
+    exam_code: str = ""  # e.g. "32406", "91946" — auto-detected from URL/content
 
 
 @dataclass
@@ -30,11 +31,13 @@ class ExamSchedulePair:
 
 LANGUAGE_PATTERNS = {
     "english": re.compile(r"\benglish\b", re.IGNORECASE),
-    "te_reo_maori": re.compile(r"\b(māori|maori|te reo)\b", re.IGNORECASE),
+    "te_reo_maori": re.compile(r"\b(māori|maori|te reo|whakamatautau|rauemi|pāngarau)\b", re.IGNORECASE),
     "cook_islands_maori": re.compile(r"\bcook island", re.IGNORECASE),
     "niuean": re.compile(r"\bniuean\b", re.IGNORECASE),
     "tokelauan": re.compile(r"\btokelau", re.IGNORECASE),
 }
+# NZQA filenames: -mex- = Maori exam, -mre- = Maori resource
+MAORI_URL_RE = re.compile(r"-m(ex|re|qb)-", re.IGNORECASE)
 
 PDF_TYPE_PATTERNS = {
     "schedule": re.compile(r"\b(schedule|marking)\b", re.IGNORECASE),
@@ -46,6 +49,31 @@ PDF_TYPE_PATTERNS = {
 YEAR_RE = re.compile(r"(202[0-9])")
 EVENT_RE = re.compile(r"event[- ]?(\d)", re.IGNORECASE)
 WEEK_RE = re.compile(r"week[- ]?(\d)", re.IGNORECASE)
+EXAM_CODE_RE = re.compile(r"\b(\d{5})\b")  # 5-digit NZQA standard number
+
+# Map known exam codes to subject and level
+EXAM_CODE_MAP: dict[str, dict[str, str | int]] = {
+    "32406": {"subject": "numeracy", "level": 1},
+    "32403": {"subject": "literacy-reading", "level": 1},
+    "32404": {"subject": "literacy-reading", "level": 1},
+    "32407": {"subject": "literacy-writing", "level": 1},
+    "32408": {"subject": "literacy-writing", "level": 1},
+    "91946": {"subject": "mathematics", "level": 1},
+    "91947": {"subject": "mathematics", "level": 1},
+    "91948": {"subject": "mathematics", "level": 1},
+    "91944": {"subject": "mathematics", "level": 1},
+    "91945": {"subject": "mathematics", "level": 1},
+    "91261": {"subject": "mathematics", "level": 2},
+    "91262": {"subject": "mathematics", "level": 2},
+    "91263": {"subject": "mathematics", "level": 2},
+    "91264": {"subject": "mathematics", "level": 2},
+    "91267": {"subject": "mathematics", "level": 2},
+    "91269": {"subject": "mathematics", "level": 2},
+    "91578": {"subject": "mathematics", "level": 3},
+    "91579": {"subject": "mathematics", "level": 3},
+    "91580": {"subject": "mathematics", "level": 3},
+    "91587": {"subject": "mathematics", "level": 3},
+}
 
 
 class ExamCrawlerService:
@@ -181,6 +209,9 @@ class ExamCrawlerService:
             if pattern.search(combined):
                 language = lang
                 break
+        # Check URL for Maori filename pattern (e.g. 91262-mex-2024.pdf)
+        if language == "unknown" and MAORI_URL_RE.search(url):
+            language = "te_reo_maori"
         # If no explicit non-English language detected, default to English.
         # NZQA always labels non-English papers explicitly (Te Reo Māori, Niuean, etc.)
         if language == "unknown" and pdf_type in ("exam", "schedule"):
@@ -195,14 +226,30 @@ class ExamCrawlerService:
         if week_match:
             event = f"{event}-week-{week_match.group(1)}" if event else f"week-{week_match.group(1)}"
 
-        # Use context for title when link text is generic like "PDF (2.3 MB)"
+        # Detect exam code from URL (e.g. "91946-exm-2025.pdf" → "91946")
+        exam_code = ""
+        code_match = EXAM_CODE_RE.search(url.split("/")[-1])
+        if code_match and code_match.group(1) in EXAM_CODE_MAP:
+            exam_code = code_match.group(1)
+        elif code_match:
+            # Try the combined text for known codes
+            for code in EXAM_CODE_MAP:
+                if code in combined:
+                    exam_code = code
+                    break
+
+        # Use context for title when link text is generic like "PDF (2.3 MB)" or "(796KB)"
         title = link_text
-        if link_text.startswith("PDF") and context_text and len(context_text) > len(link_text):
-            # Extract a clean title from context (first meaningful phrase)
+        if (link_text.startswith("PDF") or link_text.startswith("(")) and context_text and len(context_text) > len(link_text):
             clean = re.sub(r"PDF\s*\([^)]*\)", "", context_text).strip()
+            clean = re.sub(r"\([^)]*KB\)|\([^)]*MB\)", "", clean).strip()
             clean = re.sub(r"\s+", " ", clean).strip()
             if clean:
                 title = clean[:100]
+        # Still generic? Use exam code + year
+        if title.startswith("(") or title.startswith("PDF"):
+            if exam_code and year:
+                title = f"{exam_code} Exam {year}"
 
         return CrawledPDF(
             url=url,
@@ -211,4 +258,5 @@ class ExamCrawlerService:
             language=language,
             pdf_type=pdf_type,
             event=event,
+            exam_code=exam_code,
         )

@@ -27,7 +27,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     google_api_key: str = ""
+    groq_api_key: str = ""
     default_ai_provider: str = "claude"
+
+    # Remote database (Neon) for syncing AI-generated questions
+    remote_database_url: str = ""
 
     # OCR
     ocr_provider: str = "gemini"

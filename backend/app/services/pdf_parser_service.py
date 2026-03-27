@@ -65,13 +65,17 @@ Rules:
   - explanation: asks to explain, agree/disagree, or justify with reasoning
 - Use simple numbering for question_number: "1", "2", "3" (not "ONE", "TWO")
 
+- For multichoice questions, extract the options as a list of strings in order.
+- For non-multichoice questions, omit the "options" field or set it to null.
+
 Return ONLY a JSON array, no markdown, no explanation:
 [
   {
     "question_number": "1",
     "sub_question": "a",
     "question_text": "full text of the sub-question including any preamble context",
-    "question_type": "numeric"
+    "question_type": "multichoice",
+    "options": ["option 1 text", "option 2 text", "option 3 text", "option 4 text"]
   },
   ...
 ]"""
@@ -133,6 +137,50 @@ class PDFParserService:
             if key in question_images:
                 q.image_bytes = question_images[key]
                 q.has_image = True
+
+        # Create passage entries (reading context pages) and insert before
+        # each question's sub-questions
+        passage_keys = sorted(
+            k for k in question_images if "_passage_" in k
+        )
+        if passage_keys:
+            # Group passage images by question number
+            from collections import defaultdict
+            passages_by_q: dict[str, list[str]] = defaultdict(list)
+            for pk in passage_keys:
+                # "Q1_passage_0" → q_num="1"
+                q_num = pk.split("_")[0][1:]  # strip "Q"
+                passages_by_q[q_num].append(pk)
+
+            # Insert passage entries before each question's first sub
+            extra: list[ParsedSubQuestion] = []
+            for q_num, pkeys in passages_by_q.items():
+                for i, pk in enumerate(pkeys):
+                    extra.append(ParsedSubQuestion(
+                        question_number=q_num,
+                        sub_question=f"passage-{i}",
+                        text="[Reading passage]",
+                        question_type="passage",
+                        has_image=True,
+                        image_bytes=question_images[pk],
+                        order_index=-1,  # will be re-indexed below
+                    ))
+
+            # Merge: passage entries first per question, then original subs
+            merged: list[ParsedSubQuestion] = []
+            seen_questions: set[str] = set()
+            for q in questions:
+                if q.question_number not in seen_questions:
+                    seen_questions.add(q.question_number)
+                    # Insert passage entries for this question
+                    merged.extend(
+                        p for p in extra if p.question_number == q.question_number
+                    )
+                merged.append(q)
+            # Re-index
+            for i, q in enumerate(merged):
+                q.order_index = i
+            questions = merged
 
         return ParsedExam(title=title, raw_text=raw_text, questions=questions)
 
@@ -248,6 +296,13 @@ class PDFParserService:
             return {}
 
         images: dict[str, bytes] = {}
+
+        # --- Extract passage/context pages for each question ---
+        # For reading exams, pages between QUESTION header and first sub
+        # contain the reading passage that students need.
+        self._extract_passage_images(doc, markers, images)
+
+        # --- Extract per-sub-question cropped images ---
         for i, marker in enumerate(markers):
             if marker["type"] != "sub":
                 continue
@@ -277,6 +332,58 @@ class PDFParserService:
             images[key] = pix.tobytes("png")
 
         return images
+
+    def _extract_passage_images(
+        self,
+        doc: fitz.Document,
+        markers: list[dict],
+        images: dict[str, bytes],
+    ) -> None:
+        """Extract full-page passage images for each question.
+
+        For reading/literacy exams, there are passage pages between the
+        QUESTION header and the first sub-question. These need to be shown
+        as context before the sub-questions.
+
+        Produces keys like "Q1_passage_0", "Q1_passage_1", etc.
+        """
+        # Group markers by question number
+        question_headers: dict[str, dict] = {}
+        first_subs: dict[str, dict] = {}
+
+        for m in markers:
+            q = m["question"]
+            if not q:
+                continue
+            if m["type"] == "question" and q not in question_headers:
+                question_headers[q] = m
+            if m["type"] == "sub" and q not in first_subs:
+                first_subs[q] = m
+
+        for q_num, header in question_headers.items():
+            first_sub = first_subs.get(q_num)
+            if not first_sub:
+                continue
+
+            header_page = header["page"]
+            sub_page = first_sub["page"]
+
+            # Only extract if there are passage pages between header and first sub
+            if sub_page <= header_page:
+                continue
+
+            # Render each passage page (from header page to the page before first sub)
+            for page_offset, page_idx in enumerate(range(header_page, sub_page)):
+                page = doc[page_idx]
+                clip = fitz.Rect(
+                    self._SIDE_MARGIN,
+                    self._HEADER_MARGIN,
+                    page.rect.width - self._SIDE_MARGIN,
+                    page.rect.height - self._FOOTER_MARGIN,
+                )
+                pix = page.get_pixmap(clip=clip, dpi=self._IMAGE_DPI)
+                key = f"Q{q_num}_passage_{page_offset}"
+                images[key] = pix.tobytes("png")
 
     def _find_markers(
         self, doc: fitz.Document,
@@ -330,19 +437,18 @@ class PDFParserService:
     ) -> float:
         """Find the y-coordinate where cropping should start for a sub-question.
 
-        Rules (in priority order):
-        1. If there is a QUESTION header on the same page above us, start there.
-        2. If the previous marker is on the same page (another sub-question),
-           include shared context by starting from the *page top* when the
-           previous sub is (a), otherwise from the previous sub's y position
-           to preserve shared tables/graphs.
-        3. Otherwise start from the page top (minus header margin).
+        Rules:
+        1. For the first sub-question (a) of a question: include from the
+           QUESTION header (if on same page) or page top, so shared context
+           like passages/tables/graphs is captured.
+        2. For subsequent subs (b), (c), etc.: start from just above the
+           current sub's own marker — each sub only shows its own content.
         """
         marker = markers[current_idx]
 
-        # Walk backwards to find context
+        # Check if this is the first sub of its question on this page
+        is_first_sub = True
         question_header_y = None
-        prev_sub_on_page = None
 
         for j in range(current_idx - 1, -1, -1):
             prev = markers[j]
@@ -351,25 +457,18 @@ class PDFParserService:
             if prev["type"] == "question":
                 question_header_y = prev["y"]
                 break
-            if prev["type"] == "sub" and prev_sub_on_page is None:
-                prev_sub_on_page = prev
+            if prev["type"] == "sub" and prev["question"] == marker["question"]:
+                is_first_sub = False
+                break
 
-        # If QUESTION header is on this page, start from it
-        if question_header_y is not None:
-            return question_header_y - 5
+        if is_first_sub:
+            # First sub: include QUESTION header or page top for shared context
+            if question_header_y is not None:
+                return question_header_y - 5
+            return self._HEADER_MARGIN
 
-        # If there's a previous sub on the same page, start from the
-        # content between them (keeps shared context like tables/graphs).
-        # But if the previous sub is far above, include from page top.
-        if prev_sub_on_page is not None:
-            gap = marker["y"] - prev_sub_on_page["y"]
-            # Large gap means there's significant shared context between subs
-            if gap > 200:
-                return prev_sub_on_page["y"] + 30  # just below prev sub's text
-            else:
-                return prev_sub_on_page["y"] - 5
-
-        return self._HEADER_MARGIN
+        # Subsequent subs: start from just above their own (x) marker
+        return marker["y"] - 10
 
     def _find_crop_bottom(
         self, markers: list[dict], current_idx: int,
@@ -415,13 +514,25 @@ class PDFParserService:
 
         return "Exam Paper"
 
+    # Patterns to strip from extracted text (watermarks, repeated noise)
+    _NOISE_PATTERNS = [
+        re.compile(r"(?:DO NOT WRITE IN(?:\s+THIS)?(?:\s+AREA)?[^\n]*\n?)+", re.IGNORECASE),
+        re.compile(r"(?:SUPERVISOR'?S?\s+USE\s+ONLY[^\n]*\n?)+", re.IGNORECASE),
+    ]
+
     def _extract_full_text(self, doc: fitz.Document) -> str:
-        """Extract all text from the PDF."""
+        """Extract all text from the PDF, filtering out watermarks and noise."""
         parts = []
         for i, page in enumerate(doc):
             text = page.get_text("text").strip()
             if text:
-                parts.append(f"--- Page {i + 1} ---\n{text}")
+                # Remove watermark/noise patterns
+                for pattern in self._NOISE_PATTERNS:
+                    text = pattern.sub("", text)
+                # Collapse multiple blank lines
+                text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                if text:
+                    parts.append(f"--- Page {i + 1} ---\n{text}")
         return "\n\n".join(parts)
 
     def _extract_all_images(self, doc: fitz.Document) -> dict[int, list[bytes]]:

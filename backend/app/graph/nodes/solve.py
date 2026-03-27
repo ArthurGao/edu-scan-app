@@ -47,6 +47,7 @@ async def solve_node(state: SolveState) -> dict:
             preferred=state.get("preferred_provider"),
             subject=subject,
             attempt=state.get("attempt_count", 0),
+            user_tier=state.get("user_tier", "paid"),
         )
         context = _build_context(
             state.get("related_formulas", []),

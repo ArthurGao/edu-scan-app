@@ -60,6 +60,7 @@ async def upload_exam_pdf(
     title: str = Form(...),
     year: int = Form(...),
     subject: str = Form("numeracy"),
+    level: int = Form(1),
     exam_code: str = Form("32406"),
     language: str = Form("english"),
     source_url: Optional[str] = Form(None),
@@ -92,6 +93,7 @@ async def upload_exam_pdf(
         source_url=source_url,
         year=year,
         subject=subject,
+        level=level,
         exam_code=exam_code,
         paper_type="exam",
         language=language,
@@ -151,10 +153,15 @@ async def crawl_exam_page(
     request: CrawlRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Crawl an NZQA page to discover, download, parse and store exam PDFs."""
+    """Crawl an NZQA page to discover, download, parse and store exam PDFs.
+
+    Uses concurrent download+parse for speed, then saves to DB sequentially.
+    """
+    import asyncio
     import logging
 
     logger = logging.getLogger(__name__)
+    from app.services.exam_crawler_service import EXAM_CODE_MAP
 
     crawler = ExamCrawlerService()
     parser = PDFParserService()
@@ -169,39 +176,87 @@ async def crawl_exam_page(
     errors: list[str] = []
     total_questions = 0
 
+    # --- Phase 1: Filter out duplicates (fast, DB only) ---
+    new_pairs = []
     for pair in pairs:
         exam_title = pair.exam.title or pair.exam.url.split("/")[-1]
+        dup = (await db.execute(
+            select(ExamPaper).where(ExamPaper.source_url == pair.exam.url)
+        )).scalar_one_or_none()
+        if dup:
+            skipped.append(f"{exam_title} ({pair.exam.year})")
+            logger.info("Skipping existing: %s", exam_title)
+        else:
+            new_pairs.append(pair)
+
+    if not new_pairs:
+        return CrawlResponse(
+            url=request.url,
+            total_pdfs_discovered=len(all_pdfs),
+            total_papers_imported=0,
+            total_questions_parsed=0,
+            total_skipped=len(skipped),
+            papers=[], skipped=skipped, failed=failed, errors=errors,
+        )
+
+    # --- Phase 2: Download + parse concurrently (3 at a time) ---
+    CONCURRENCY = 3
+    semaphore = asyncio.Semaphore(CONCURRENCY)
+
+    async def process_pair(pair):
+        """Download and parse a single exam+schedule pair. Returns parsed data or error."""
+        exam_title = pair.exam.title or pair.exam.url.split("/")[-1]
+        async with semaphore:
+            try:
+                exam_bytes = await crawler.download_pdf(pair.exam.url)
+                parsed_exam = await parser.parse_exam_pdf(exam_bytes)
+                if not parsed_exam.questions:
+                    return {"status": "failed", "title": exam_title, "year": pair.exam.year,
+                            "msg": "0 questions parsed", "url": pair.exam.url}
+
+                answer_map = {}
+                if pair.schedule:
+                    try:
+                        schedule_bytes = await crawler.download_pdf(pair.schedule.url)
+                        schedule_answers = await parser.parse_schedule_pdf(schedule_bytes)
+                        answer_map = parser.get_answer_map(schedule_answers)
+                    except Exception as e:
+                        return {"status": "ok", "pair": pair, "parsed": parsed_exam,
+                                "answers": answer_map, "warning": f"Schedule failed: {e}"}
+
+                return {"status": "ok", "pair": pair, "parsed": parsed_exam, "answers": answer_map}
+            except Exception as e:
+                return {"status": "failed", "title": exam_title, "year": pair.exam.year,
+                        "msg": str(e), "url": pair.exam.url}
+
+    logger.info("Processing %d new papers (concurrency=%d)...", len(new_pairs), CONCURRENCY)
+    results = await asyncio.gather(*[process_pair(p) for p in new_pairs])
+
+    # --- Phase 3: Save to DB sequentially ---
+    for result in results:
+        if result["status"] == "failed":
+            failed.append(f"{result['title']} ({result['year']}) — {result['msg']}, URL: {result['url']}")
+            continue
+
+        pair = result["pair"]
+        parsed_exam = result["parsed"]
+        answer_map = result["answers"]
+        exam_title = pair.exam.title or pair.exam.url.split("/")[-1]
+
+        if result.get("warning"):
+            errors.append(f"{exam_title}: {result['warning']}")
+
         try:
-            # Check duplicate by source_url — skip if already imported
-            dup_query = select(ExamPaper).where(
-                ExamPaper.source_url == pair.exam.url,
-            )
-            if (await db.execute(dup_query)).scalar_one_or_none():
-                skipped.append(f"{exam_title} ({pair.exam.year})")
-                logger.info("Skipping existing: %s", exam_title)
-                continue
-
-            exam_bytes = await crawler.download_pdf(pair.exam.url)
-            parsed_exam = await parser.parse_exam_pdf(exam_bytes)
-            if not parsed_exam.questions:
-                failed.append(f"{exam_title} ({pair.exam.year}) — 0 questions parsed, URL: {pair.exam.url}")
-                continue
-
-            answer_map = {}
-            if pair.schedule:
-                try:
-                    schedule_bytes = await crawler.download_pdf(pair.schedule.url)
-                    schedule_answers = await parser.parse_schedule_pdf(schedule_bytes)
-                    answer_map = parser.get_answer_map(schedule_answers)
-                except Exception as e:
-                    errors.append(f"Schedule parse failed for {exam_title}: {e}")
+            detected_code = pair.exam.exam_code or request.exam_code
+            code_info = EXAM_CODE_MAP.get(detected_code, {})
 
             exam_paper = ExamPaper(
                 title=pair.exam.title or parsed_exam.title,
                 source_url=pair.exam.url,
                 year=pair.exam.year,
-                subject=request.subject,
-                exam_code=request.exam_code,
+                subject=str(code_info.get("subject", request.subject)),
+                level=int(code_info.get("level", request.level)),
+                exam_code=detected_code,
                 paper_type="exam",
                 language=request.language,
                 total_questions=len(parsed_exam.questions),
@@ -230,6 +285,8 @@ async def crawl_exam_page(
                 )
                 db.add(question)
 
+            await db.commit()
+
             total_questions += len(parsed_exam.questions)
             papers_imported.append(CrawledPaperSummary(
                 title=exam_paper.title,
@@ -237,12 +294,12 @@ async def crawl_exam_page(
                 total_questions=len(parsed_exam.questions),
                 exam_paper_id=str(exam_paper.id),
             ))
+            logger.info("Imported: %s (%d questions)", exam_paper.title, len(parsed_exam.questions))
 
         except Exception as e:
+            await db.rollback()
             failed.append(f"{exam_title} ({pair.exam.year}) — {str(e)}, URL: {pair.exam.url}")
-            logger.exception("Failed to process %s", pair.exam.url)
-
-    await db.commit()
+            logger.exception("Failed to save %s", pair.exam.url)
 
     return CrawlResponse(
         url=request.url,
@@ -381,6 +438,7 @@ async def delete_exam_paper(
 async def list_exam_papers(
     year: Optional[int] = Query(None),
     subject: Optional[str] = Query(None),
+    level: Optional[int] = Query(None, description="NCEA Level: 1, 2, or 3"),
     language: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -396,6 +454,9 @@ async def list_exam_papers(
     if subject:
         query = query.where(ExamPaper.subject == subject)
         count_query = count_query.where(ExamPaper.subject == subject)
+    if level:
+        query = query.where(ExamPaper.level == level)
+        count_query = count_query.where(ExamPaper.level == level)
     if language:
         query = query.where(ExamPaper.language == language)
         count_query = count_query.where(ExamPaper.language == language)
@@ -521,7 +582,7 @@ async def get_question_image(
     return Response(
         content=question.image_data,
         media_type="image/png",
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers={"Cache-Control": "no-cache"},
     )
 
 
@@ -567,6 +628,7 @@ def _paper_response(paper: ExamPaper) -> ExamPaperResponse:
         title=paper.title,
         year=paper.year,
         subject=paper.subject,
+        level=paper.level,
         exam_code=paper.exam_code,
         paper_type=paper.paper_type,
         language=paper.language,
@@ -584,6 +646,7 @@ def _student_question_response(q: PracticeQuestion) -> PracticeQuestionResponse:
         sub_question=q.sub_question,
         question_text=q.question_text,
         question_type=q.question_type,
+        options=q.options,
         has_image=q.has_image,
         image_url=f"/api/v1/exams/questions/{q.id}/image" if q.has_image else None,
         order_index=q.order_index,

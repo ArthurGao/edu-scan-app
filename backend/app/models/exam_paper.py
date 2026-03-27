@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    Index,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -28,6 +29,7 @@ class ExamPaper(Base):
     source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     year: Mapped[int] = mapped_column(Integer, index=True)
     subject: Mapped[str] = mapped_column(String(50), index=True)
+    level: Mapped[int] = mapped_column(Integer, default=1, index=True)  # NCEA Level 1, 2, 3
     exam_code: Mapped[str] = mapped_column(String(50))
     paper_type: Mapped[str] = mapped_column(String(20))  # "exam" | "schedule"
     language: Mapped[str] = mapped_column(String(50), default="english")
@@ -67,9 +69,27 @@ class PracticeQuestion(Base):
         String(5), nullable=True
     )  # "A" or "H"
     outcome: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    options: Mapped[Optional[list]] = mapped_column(
+        JSONB, nullable=True
+    )  # ["option A text", "option B text", ...] for multichoice
     has_image: Mapped[bool] = mapped_column(Boolean, default=False)
     image_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    # AI generation fields
+    source: Mapped[str] = mapped_column(
+        String(20), default="original", server_default="original"
+    )  # "original" | "ai_generated"
+    status: Mapped[str] = mapped_column(
+        String(20), default="approved", server_default="approved"
+    )  # "draft" | "approved" | "rejected"
+    source_question_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("practice_questions.id", ondelete="SET NULL"), nullable=True
+    )  # ID of original question this was generated from
+    synced_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )  # Timestamp of last sync to remote Neon
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
@@ -77,4 +97,12 @@ class PracticeQuestion(Base):
     # Relationships
     exam_paper: Mapped["ExamPaper"] = relationship(
         "ExamPaper", back_populates="questions"
+    )
+    source_question: Mapped[Optional["PracticeQuestion"]] = relationship(
+        "PracticeQuestion", remote_side="PracticeQuestion.id", foreign_keys=[source_question_id]
+    )
+
+    __table_args__ = (
+        Index("ix_practice_questions_status", "status"),
+        Index("ix_practice_questions_source", "source"),
     )

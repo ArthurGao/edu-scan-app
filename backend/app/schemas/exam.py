@@ -9,6 +9,7 @@ class ExamPaperResponse(BaseModel):
     title: str
     year: int
     subject: str
+    level: int
     exam_code: str
     paper_type: str
     language: str
@@ -32,6 +33,7 @@ class PracticeQuestionResponse(BaseModel):
     sub_question: str
     question_text: str
     question_type: Optional[str] = None
+    options: Optional[list[str]] = None
     has_image: bool = False
     image_url: Optional[str] = None  # URL to fetch the cropped image
     order_index: int = 0
@@ -84,6 +86,7 @@ class CrawlRequest(BaseModel):
     url: str
     language: str = "english"
     subject: str = "numeracy"
+    level: int = 1
     exam_code: str = "32406"
 
 

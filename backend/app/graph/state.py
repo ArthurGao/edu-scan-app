@@ -11,6 +11,7 @@ class SolveState(TypedDict, total=False):
     subject: Optional[str]
     grade_level: Optional[str]
     preferred_provider: Optional[str]
+    user_tier: Optional[str]  # "free" | "paid" — controls model routing
 
     # OCR
     ocr_text: str

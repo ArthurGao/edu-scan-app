@@ -13,6 +13,7 @@ export default function ExamsPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [yearFilter, setYearFilter] = useState("");
+  const [levelFilter, setLevelFilter] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [showCrawl, setShowCrawl] = useState(false);
 
@@ -23,11 +24,12 @@ export default function ExamsPage() {
         page,
         limit: 20,
         year: yearFilter ? Number(yearFilter) : undefined,
+        level: levelFilter ? Number(levelFilter) : undefined,
       });
       setData(res);
     } catch { /* ignore */ }
     finally { setLoading(false); }
-  }, [page, yearFilter]);
+  }, [page, yearFilter, levelFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -78,6 +80,16 @@ export default function ExamsPage() {
       {/* Filters */}
       <div className="flex gap-3">
         <select
+          value={levelFilter}
+          onChange={(e) => { setLevelFilter(e.target.value); setPage(1); }}
+          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+        >
+          <option value="">All levels</option>
+          <option value="1">Level 1</option>
+          <option value="2">Level 2</option>
+          <option value="3">Level 3</option>
+        </select>
+        <select
           value={yearFilter}
           onChange={(e) => { setYearFilter(e.target.value); setPage(1); }}
           className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
@@ -96,6 +108,7 @@ export default function ExamsPage() {
             <thead className="bg-gray-50">
               <tr className="text-left text-gray-500">
                 <th className="px-4 py-3 font-medium">Title</th>
+                <th className="px-4 py-3 font-medium">Level</th>
                 <th className="px-4 py-3 font-medium">Year</th>
                 <th className="px-4 py-3 font-medium">Subject</th>
                 <th className="px-4 py-3 font-medium">Language</th>
@@ -108,15 +121,18 @@ export default function ExamsPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-t border-gray-50">
-                    <td colSpan={7} className="px-4 py-3"><div className="h-5 bg-gray-100 rounded animate-pulse" /></td>
+                    <td colSpan={8} className="px-4 py-3"><div className="h-5 bg-gray-100 rounded animate-pulse" /></td>
                   </tr>
                 ))
               ) : data?.items.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No exam papers found</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No exam papers found</td></tr>
               ) : (
                 data?.items.map((exam) => (
                   <tr key={exam.id} className="border-t border-gray-50 hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-medium text-gray-900">{exam.title}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700">L{exam.level}</span>
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{exam.year}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 capitalize">{exam.subject}</span>
@@ -191,6 +207,7 @@ function UploadPanel({ onDone }: { onDone: () => void }) {
     fd.append("title", (form.elements.namedItem("title") as HTMLInputElement).value);
     fd.append("year", (form.elements.namedItem("year") as HTMLInputElement).value);
     fd.append("subject", (form.elements.namedItem("subject") as HTMLSelectElement).value);
+    fd.append("level", (form.elements.namedItem("level") as HTMLSelectElement).value);
     fd.append("language", (form.elements.namedItem("language") as HTMLSelectElement).value);
 
     setUploading(true);
@@ -225,6 +242,14 @@ function UploadPanel({ onDone }: { onDone: () => void }) {
             <option value="numeracy">Numeracy</option>
             <option value="literacy">Literacy</option>
             <option value="mathematics">Mathematics</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">NCEA Level</label>
+          <select name="level" defaultValue="1" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500">
+            <option value="1">Level 1</option>
+            <option value="2">Level 2</option>
+            <option value="3">Level 3</option>
           </select>
         </div>
         <div>
@@ -268,12 +293,13 @@ function CrawlPanel({ onDone }: { onDone: () => void }) {
     const form = e.currentTarget;
     const url = (form.elements.namedItem("url") as HTMLInputElement).value;
     const language = (form.elements.namedItem("language") as HTMLSelectElement).value;
+    const level = Number((form.elements.namedItem("crawl_level") as HTMLSelectElement).value);
 
     setCrawling(true);
     setError(null);
     setCrawlResult(null);
     try {
-      const res = await crawlExams({ url, language });
+      const res = await crawlExams({ url, language, level });
       setCrawlResult(res);
       if (res.total_papers_imported > 0) {
         setTimeout(onDone, 3000);
@@ -294,6 +320,14 @@ function CrawlPanel({ onDone }: { onDone: () => void }) {
           <label className="block text-sm font-medium text-gray-700 mb-1">NZQA Page URL *</label>
           <input name="url" required placeholder="https://www2.nzqa.govt.nz/ncea/subjects/past-exams-and-exemplars/litnum/32406/"
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">NCEA Level</label>
+          <select name="crawl_level" defaultValue="1" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500">
+            <option value="1">Level 1</option>
+            <option value="2">Level 2</option>
+            <option value="3">Level 3</option>
+          </select>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>

@@ -107,3 +107,38 @@ export interface FormulaDetail extends Formula {
   keywords: string[];
   related_formulas: Formula[];
 }
+
+export interface ExamPaper {
+  id: string;
+  title: string;
+  year: number;
+  subject: string;
+  level: number;
+  exam_code: string;
+  paper_type: string;
+  language: string;
+  total_questions: number;
+  created_at: string;
+}
+
+export interface PracticeQuestion {
+  id: string;
+  exam_paper_id: string;
+  question_number: string;
+  sub_question: string;
+  question_text: string;
+  question_type: string | null;
+  options: string[] | null;
+  has_image: boolean;
+  image_url: string | null;
+  order_index: number;
+}
+
+export interface QuestionAnswer {
+  id: string;
+  correct_answer: string | null;
+  accepted_answers: string[] | null;
+  answer_explanation: string | null;
+  marks: string | null;
+  outcome: number | null;
+}
