@@ -20,6 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -584,6 +585,88 @@ async def get_question_image(
         media_type="image/png",
         headers={"Cache-Control": "no-cache"},
     )
+
+
+# ===========================================================================
+# Student: AI Explanation for a question
+# ===========================================================================
+
+
+class ExplainResponse(BaseModel):
+    explanation: str
+
+
+@router.post(
+    "/{exam_id}/questions/{question_id}/explain",
+    response_model=ExplainResponse,
+)
+async def explain_question(
+    exam_id: int,
+    question_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Use AI to explain a question and its answer."""
+    await _require_exam(exam_id, db)
+    question = await _require_question(exam_id, question_id, db)
+
+    # Build context
+    parts = []
+    if question.question_text:
+        parts.append(f"Question: {question.question_text}")
+    if question.options:
+        parts.append("Options:")
+        for i, opt in enumerate(question.options):
+            parts.append(f"  {chr(65 + i)}. {opt}")
+    if question.correct_answer:
+        parts.append(f"Correct Answer: {question.correct_answer}")
+    if question.accepted_answers:
+        parts.append(f"Also accepted: {', '.join(question.accepted_answers)}")
+
+    # Determine subject for prompt style
+    exam = await _require_exam(exam_id, db)
+    subject = exam.subject or "general"
+    is_stem = subject.lower() in ("math", "mathematics", "numeracy", "physics", "chemistry", "biology")
+
+    has_answer = bool(question.correct_answer)
+
+    if is_stem:
+        system_prompt = (
+            "You are an experienced math/science tutor helping a student. "
+            "Explain this exam question with a clear, step-by-step solution.\n\n"
+            "Format rules:\n"
+            "- Use LaTeX for ALL math: inline $...$ and display $$...$$\n"
+            "- Use **bold** for key terms and section headers\n"
+            "- Number your steps clearly (1. 2. 3.)\n"
+            "- Show all working and calculations\n"
+            "- End with a clear final answer\n"
+            + ("- Explain why the correct answer is right\n" if has_answer else
+               "- Solve the problem completely and give the final answer\n")
+        )
+    else:
+        system_prompt = (
+            "You are an experienced tutor helping a student with reading comprehension.\n\n"
+            "Explain this question clearly:\n"
+            "1. **What the question is asking** — rephrase in simple terms\n"
+            + ("2. **Why the correct answer is right** — explain the reasoning\n"
+               "3. **Why each wrong option is wrong** — brief explanation for each\n"
+               if has_answer else
+               "2. **How to approach this** — explain the reasoning method\n"
+               "3. **The answer** — provide and explain your answer\n")
+            + "4. **Key tip** — one tip for similar questions\n\n"
+            "Use **bold** for emphasis. Be concise and educational."
+        )
+
+    from app.llm.registry import get_llm
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    llm = get_llm(tier="fast", provider="gemini")
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="\n".join(parts)),
+    ]
+    result = await llm.ainvoke(messages)
+
+    return ExplainResponse(explanation=result.content)
 
 
 # ===========================================================================

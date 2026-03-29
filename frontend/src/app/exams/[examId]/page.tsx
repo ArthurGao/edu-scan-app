@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { getExams, getExamQuestions, revealAnswer } from "@/lib/api";
+import { getExams, getExamQuestions, revealAnswer, explainQuestion } from "@/lib/api";
 import {
   ExamPaper,
   PracticeQuestion,
@@ -11,27 +11,50 @@ import {
   PaginatedResponse,
 } from "@/lib/types";
 import Pagination from "@/components/Pagination";
+import { renderRichText } from "@/lib/renderMath";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 
-interface QuestionGroup {
-  questionNumber: string;
+interface SubGroup {
+  sub: string;
   items: PracticeQuestion[];
 }
 
-function groupQuestionsByNumber(
-  questions: PracticeQuestion[]
-): QuestionGroup[] {
-  const map = new Map<string, PracticeQuestion[]>();
+interface QuestionGroup {
+  questionNumber: string;
+  passages: PracticeQuestion[];
+  subGroups: SubGroup[];
+}
+
+function groupQuestions(questions: PracticeQuestion[]): QuestionGroup[] {
+  const map = new Map<
+    string,
+    { passages: PracticeQuestion[]; subMap: Map<string, PracticeQuestion[]> }
+  >();
+
   for (const q of questions) {
-    const existing = map.get(q.question_number) || [];
-    existing.push(q);
-    map.set(q.question_number, existing);
+    if (!map.has(q.question_number)) {
+      map.set(q.question_number, { passages: [], subMap: new Map() });
+    }
+    const entry = map.get(q.question_number)!;
+
+    if (q.sub_question.startsWith("passage-")) {
+      entry.passages.push(q);
+    } else {
+      const existing = entry.subMap.get(q.sub_question) || [];
+      existing.push(q);
+      entry.subMap.set(q.sub_question, existing);
+    }
   }
-  return Array.from(map.entries()).map(([questionNumber, items]) => ({
+
+  return Array.from(map.entries()).map(([questionNumber, { passages, subMap }]) => ({
     questionNumber,
-    items,
+    passages,
+    subGroups: Array.from(subMap.entries()).map(([sub, items]) => ({
+      sub,
+      items,
+    })),
   }));
 }
 
@@ -58,6 +81,10 @@ export default function ExamDetailPage() {
   const [selfAssessment, setSelfAssessment] = useState<
     Record<string, "correct" | "incorrect">
   >({});
+  // AI explanation
+  const [aiExplanations, setAiExplanations] = useState<Record<string, string>>({});
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [aiErrors, setAiErrors] = useState<Record<string, string>>({});
 
   const questionLimit = 50;
 
@@ -118,6 +145,25 @@ export default function ExamDetailPage() {
       setError("Failed to reveal answer.");
     } finally {
       setRevealingId(null);
+    }
+  };
+
+  const handleAskAI = async (q: PracticeQuestion) => {
+    if (aiExplanations[q.id] || aiLoading === q.id) return;
+
+    setAiLoading(q.id);
+    setAiErrors((prev) => { const next = { ...prev }; delete next[q.id]; return next; });
+
+    try {
+      const result = await explainQuestion(examId, q.id);
+      setAiExplanations((prev) => ({ ...prev, [q.id]: result.explanation }));
+    } catch (err) {
+      setAiErrors((prev) => ({
+        ...prev,
+        [q.id]: err instanceof Error ? err.message : "AI explanation failed",
+      }));
+    } finally {
+      setAiLoading(null);
     }
   };
 
@@ -214,7 +260,7 @@ export default function ExamDetailPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {groupQuestionsByNumber(questions).map((group) => (
+          {groupQuestions(questions).map((group) => (
             <div
               key={group.questionNumber}
               className="bg-white rounded-xl shadow-sm border border-gray-100 p-6"
@@ -230,57 +276,70 @@ export default function ExamDetailPage() {
               </div>
 
               {/* Passage/reading context images */}
-              {group.items
-                .filter((q) => q.sub_question.startsWith("passage-"))
-                .map((q) => (
-                  <div key={q.id} className="mb-4">
-                    <img
-                      src={`${API_BASE_URL}/exams/questions/${q.id}/image?v=3`}
-                      alt={`Reading passage for Question ${group.questionNumber}`}
-                      className="max-w-full h-auto rounded-lg border border-gray-200"
-                      loading="lazy"
-                    />
-                  </div>
-                ))}
+              {group.passages.map((q) => (
+                <div key={q.id} className="mb-4">
+                  <img
+                    src={`${API_BASE_URL}/exams/questions/${q.id}/image?v=3`}
+                    alt={`Reading passage for Question ${group.questionNumber}`}
+                    className="max-w-full h-auto rounded-lg border border-gray-200"
+                    loading="lazy"
+                  />
+                </div>
+              ))}
 
-              {/* Sub-questions */}
+              {/* Sub-question groups */}
               <div className="space-y-5">
-                {group.items
-                  .filter((q) => !q.sub_question.startsWith("passage-"))
-                  .map((q) => {
+                {group.subGroups.map((sg) => (
+                  <div key={sg.sub} className="border-l-2 border-gray-200 pl-4">
+                    {/* Sub-question label */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-semibold text-gray-700">
+                        ({sg.sub})
+                      </span>
+                      {sg.items[0]?.question_type && (
+                        <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                          {sg.items[0].question_type}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Show image ONCE for the sub-group (first item with image) */}
+                    {sg.items[0]?.has_image && (
+                      <div className="mb-3">
+                        <img
+                          src={`${API_BASE_URL}/exams/questions/${sg.items[0].id}/image?v=3`}
+                          alt={`Question ${group.questionNumber}(${sg.sub})`}
+                          className="max-w-full h-auto rounded-lg border border-gray-200"
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
+
+                    {/* Render each sub-sub-question within this sub-group */}
+                    {sg.items.map((q, qIdx) => {
                     const revealed = revealedAnswers[q.id];
+                    // For single-item sub-groups, don't repeat the sub label
+                    const showSubLabel = sg.items.length > 1;
                     return (
                       <div
                         key={q.id}
-                        className="border-l-2 border-gray-200 pl-4"
+                        className={sg.items.length > 1 ? "border-l border-indigo-200 pl-3 py-2" : ""}
                       >
-                        <div className="flex items-center gap-2 mb-2">
-                          {q.sub_question && (
-                            <span className="text-sm font-semibold text-gray-700">
-                              ({q.sub_question})
-                            </span>
-                          )}
-                          {q.question_type && (
-                            <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                              {q.question_type}
-                            </span>
-                          )}
-                        </div>
+                        {/* Show brief label for sub-sub-questions */}
+                        {showSubLabel && q.question_text && (
+                          <p className="text-gray-800 text-sm mb-2">
+                            {q.question_text.length > 200
+                              ? q.question_text.slice(0, 200) + "..."
+                              : q.question_text}
+                          </p>
+                        )}
 
-                        {q.has_image ? (
-                          <div className="mb-3">
-                            <img
-                              src={`${API_BASE_URL}/exams/questions/${q.id}/image?v=3`}
-                              alt={`Question ${q.question_number}${q.sub_question ? `(${q.sub_question})` : ""}`}
-                              className="max-w-full h-auto rounded-lg border border-gray-200"
-                              loading="lazy"
-                            />
-                          </div>
-                        ) : q.question_text ? (
+                        {/* For single-item groups without image already shown, show text */}
+                        {!showSubLabel && !sg.items[0]?.has_image && q.question_text && (
                           <p className="text-gray-800 whitespace-pre-wrap mb-3 text-sm">
                             {q.question_text}
                           </p>
-                        ) : null}
+                        )}
 
                         {/* Before reveal: clickable options or text input */}
                         {!revealed && (
@@ -439,67 +498,127 @@ export default function ExamDetailPage() {
                                 </div>
                               )}
 
-                              {/* Correct answer */}
-                              <p className="text-xs font-semibold text-gray-600 mb-1">
-                                Correct Answer
-                              </p>
-                              <p className="text-sm font-medium text-gray-900">
-                                {revealed.correct_answer || "No answer available"}
-                              </p>
-                              {revealed.accepted_answers &&
-                                revealed.accepted_answers.length > 0 && (
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    Also accepted:{" "}
-                                    {revealed.accepted_answers.join(", ")}
+                              {/* Correct answer (only show if available) */}
+                              {revealed.correct_answer ? (
+                                <>
+                                  <p className="text-xs font-semibold text-gray-600 mb-1">
+                                    Correct Answer
                                   </p>
-                                )}
-                              {revealed.answer_explanation && (
-                                <p className="text-xs text-gray-600 mt-2">
-                                  {revealed.answer_explanation}
-                                </p>
-                              )}
-                              {revealed.marks && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                  Marks: {revealed.marks}
-                                </p>
-                              )}
+                                  <p className="text-sm font-medium text-gray-900">
+                                    {revealed.correct_answer}
+                                  </p>
+                                  {revealed.accepted_answers &&
+                                    revealed.accepted_answers.length > 0 && (
+                                      <p className="text-xs text-gray-500 mt-1">
+                                        Also accepted:{" "}
+                                        {revealed.accepted_answers.join(", ")}
+                                      </p>
+                                    )}
+                                  {revealed.answer_explanation && (
+                                    <p className="text-xs text-gray-600 mt-2">
+                                      {revealed.answer_explanation}
+                                    </p>
+                                  )}
+                                  {revealed.marks && (
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      Marks: {revealed.marks}
+                                    </p>
+                                  )}
 
-                              {/* Self-assessment buttons (only when can't auto-check) */}
-                              {!canAutoCheck && !assessment && (
-                                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200">
-                                  <span className="text-xs text-gray-500">
-                                    Did you get it right?
-                                  </span>
-                                  <button
-                                    onClick={() =>
-                                      setSelfAssessment((prev) => ({
-                                        ...prev,
-                                        [q.id]: "correct",
-                                      }))
-                                    }
-                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
-                                  >
-                                    Yes
-                                  </button>
-                                  <button
-                                    onClick={() =>
-                                      setSelfAssessment((prev) => ({
-                                        ...prev,
-                                        [q.id]: "incorrect",
-                                      }))
-                                    }
-                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                                  >
-                                    No
-                                  </button>
-                                </div>
+                                  {/* Self-assessment buttons */}
+                                  {!canAutoCheck && !assessment && (
+                                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200">
+                                      <span className="text-xs text-gray-500">
+                                        Did you get it right?
+                                      </span>
+                                      <button
+                                        onClick={() =>
+                                          setSelfAssessment((prev) => ({
+                                            ...prev,
+                                            [q.id]: "correct",
+                                          }))
+                                        }
+                                        className="px-3 py-1 text-xs font-medium rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
+                                      >
+                                        Yes
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          setSelfAssessment((prev) => ({
+                                            ...prev,
+                                            [q.id]: "incorrect",
+                                          }))
+                                        }
+                                        className="px-3 py-1 text-xs font-medium rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                                      >
+                                        No
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="text-xs text-gray-400 italic">
+                                  No marking schedule for this exam. Use &quot;Ask AI to Explain&quot; below for the solution.
+                                </p>
                               )}
                             </div>
                           );
                         })()}
+
+                        {/* Ask AI button and explanation */}
+                        <div className="mt-3">
+                          {!aiExplanations[q.id] && aiLoading !== q.id && (
+                            <button
+                              onClick={() => handleAskAI(q)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600 transition-all"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                              </svg>
+                              Ask AI to Explain
+                            </button>
+                          )}
+
+                          {aiLoading === q.id && (
+                            <div className="flex items-center gap-2 py-2 text-sm text-purple-600">
+                              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                              AI is analyzing...
+                            </div>
+                          )}
+
+                          {aiErrors[q.id] && (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-700 mt-2">
+                              {aiErrors[q.id]}
+                            </div>
+                          )}
+
+                          {aiExplanations[q.id] && (
+                            <div className="mt-3 border border-purple-200 rounded-xl overflow-hidden">
+                              <div className="bg-purple-50 px-4 py-2 flex items-center gap-2 border-b border-purple-200">
+                                <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                </svg>
+                                <span className="text-xs font-semibold text-purple-700">AI Explanation</span>
+                              </div>
+                              {/* AI-generated content rendered with math + markdown support.
+                                  Content is from our own backend AI, non-math text is HTML-escaped by renderRichText. */}
+                              <div
+                                className="p-4 text-sm text-gray-700 leading-relaxed [&_strong]:font-semibold [&_strong]:text-gray-900 [&_ul]:my-2 [&_li]:mb-1"
+                                dangerouslySetInnerHTML={{
+                                  __html: renderRichText(aiExplanations[q.id]),
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
-                  })}
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           ))}

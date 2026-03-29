@@ -6,6 +6,13 @@ import { getExams } from "@/lib/api";
 import { ExamPaper, PaginatedResponse } from "@/lib/types";
 import Pagination from "@/components/Pagination";
 
+const subjectTabs = [
+  { label: "All Subjects", value: undefined },
+  { label: "Numeracy", value: "numeracy" },
+  { label: "Literacy Reading", value: "literacy-reading" },
+  { label: "Mathematics", value: "mathematics" },
+];
+
 const levelTabs = [
   { label: "All Levels", value: undefined },
   { label: "Level 1", value: 1 },
@@ -19,6 +26,7 @@ export default function ExamsPage() {
   const [examPage, setExamPage] = useState(1);
   const [examPages, setExamPages] = useState(1);
   const [activeLevel, setActiveLevel] = useState<number | undefined>(undefined);
+  const [activeSubject, setActiveSubject] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const examLimit = 12;
@@ -27,11 +35,12 @@ export default function ExamsPage() {
     setLoading(true);
     setError(null);
     try {
-      const params: { level?: number; page: number; limit: number } = {
+      const params: { level?: number; subject?: string; page: number; limit: number } = {
         page: examPage,
         limit: examLimit,
       };
       if (activeLevel !== undefined) params.level = activeLevel;
+      if (activeSubject !== undefined) params.subject = activeSubject;
       const data: PaginatedResponse<ExamPaper> = await getExams(params);
       setExams(data.items);
       setTotalExams(data.total);
@@ -41,11 +50,16 @@ export default function ExamsPage() {
     } finally {
       setLoading(false);
     }
-  }, [examPage, activeLevel]);
+  }, [examPage, activeLevel, activeSubject]);
 
   useEffect(() => {
     fetchExams();
   }, [fetchExams]);
+
+  const handleSubjectChange = (subject: string | undefined) => {
+    setActiveSubject(subject);
+    setExamPage(1);
+  };
 
   const handleLevelChange = (level: number | undefined) => {
     setActiveLevel(level);
@@ -61,15 +75,33 @@ export default function ExamsPage() {
         </p>
       </div>
 
+      {/* Subject filter */}
+      <div className="flex gap-2 flex-wrap">
+        {subjectTabs.map((tab) => (
+          <button
+            key={tab.label}
+            onClick={() => handleSubjectChange(tab.value)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeSubject === tab.value
+                ? "bg-indigo-500 text-white"
+                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Level filter */}
       <div className="flex gap-2 flex-wrap">
         {levelTabs.map((tab) => (
           <button
             key={tab.label}
             onClick={() => handleLevelChange(tab.value)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               activeLevel === tab.value
-                ? "bg-indigo-500 text-white"
-                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+                ? "bg-gray-800 text-white"
+                : "bg-white text-gray-500 border border-gray-200 hover:bg-gray-50"
             }`}
           >
             {tab.label}

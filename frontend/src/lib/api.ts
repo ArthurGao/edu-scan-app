@@ -251,3 +251,13 @@ export async function revealAnswer(examId: string, questionId: string) {
   const res = await api.post(`/exams/${examId}/questions/${questionId}/answer`);
   return res.data;
 }
+
+export async function explainQuestion(
+  examId: string,
+  questionId: string
+): Promise<{ explanation: string }> {
+  const res = await api.post(
+    `/exams/${examId}/questions/${questionId}/explain`
+  );
+  return res.data;
+}

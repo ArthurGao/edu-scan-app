@@ -8,12 +8,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!isLoaded) return null;
 
-  // Unauthenticated: full-width, no sidebar
-  if (!isSignedIn) {
-    return <>{children}</>;
-  }
-
-  // Authenticated: sidebar + content layout (body scrolls, sidebar sticks)
+  // Always show sidebar + content layout
   return (
     <div className="flex min-h-screen">
       <Sidebar />
