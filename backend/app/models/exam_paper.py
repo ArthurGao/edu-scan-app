@@ -2,8 +2,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     LargeBinary,
@@ -53,8 +55,8 @@ class PracticeQuestion(Base):
     __tablename__ = "practice_questions"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    exam_paper_id: Mapped[int] = mapped_column(
-        ForeignKey("exam_papers.id", ondelete="CASCADE"), index=True
+    exam_paper_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("exam_papers.id", ondelete="CASCADE"), index=True, nullable=True
     )
     question_number: Mapped[str] = mapped_column(String(20))  # "ONE", "TWO"
     sub_question: Mapped[str] = mapped_column(String(10))  # "a", "b", "c"
@@ -90,6 +92,34 @@ class PracticeQuestion(Base):
         DateTime, nullable=True
     )  # Timestamp of last sync to remote Neon
 
+    # Practice generation fields
+    visibility: Mapped[str] = mapped_column(
+        String(20), default="private", server_default="private"
+    )  # "private" | "public"
+    generated_for_user_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    difficulty_offset: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )  # 0=same, 1=harder, 2=hardest
+    usage_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    correct_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    auto_promoted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    source_scan_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("scan_records.id", ondelete="SET NULL"), nullable=True
+    )
+    knowledge_points: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    problem_type_tag: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )  # "quadratic_equation", etc.
+    difficulty: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )  # "easy" | "medium" | "hard" | "very_hard"
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
@@ -105,4 +135,7 @@ class PracticeQuestion(Base):
     __table_args__ = (
         Index("ix_practice_questions_status", "status"),
         Index("ix_practice_questions_source", "source"),
+        Index("ix_practice_questions_visibility", "visibility"),
+        Index("ix_practice_questions_source_scan", "source_scan_id"),
+        Index("ix_practice_questions_generated_for", "generated_for_user_id"),
     )

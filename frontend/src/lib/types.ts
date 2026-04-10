@@ -142,3 +142,33 @@ export interface QuestionAnswer {
   marks: string | null;
   outcome: number | null;
 }
+
+// Practice generation types
+export interface PracticeQuestionGenerated {
+  id: string;
+  question_text: string;
+  question_type: string | null;
+  difficulty: string | null;
+  difficulty_offset: number;
+  knowledge_points: string[] | null;
+  marks: string | null;
+  answered: boolean;
+  is_correct: boolean | null;
+}
+
+export interface GeneratePracticeResponse {
+  status: "ready" | "generating" | "error" | "empty";
+  scan_id: string;
+  questions: PracticeQuestionGenerated[];
+  message?: string;
+}
+
+export interface SubmitPracticeAnswerResponse {
+  is_correct: boolean;
+  grading_method: string;
+  correct_answer: string | null;
+  accepted_answers: string[] | null;
+  answer_explanation: string | null;
+  ai_feedback: string | null;
+  knowledge_points: string[] | null;
+}

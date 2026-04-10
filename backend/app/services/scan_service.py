@@ -313,6 +313,14 @@ class ScanService:
                     subject=result.get("detected_subject", "math"),
                 )
             )
+        # Generate practice questions in background
+        if scan_record.user_id:
+            asyncio.create_task(
+                self._generate_practice_background(
+                    scan_id=scan_record.id,
+                    user_id=scan_record.user_id,
+                )
+            )
 
         return ScanResponse(
             scan_id=str(scan_record.id),
@@ -495,3 +503,18 @@ class ScanService:
             related_formulas=[],
             created_at=scan_record.created_at,
         )
+
+    async def _generate_practice_background(
+        self, scan_id: int, user_id: int
+    ) -> None:
+        """Background: generate practice questions after solve."""
+        try:
+            from app.database import AsyncSessionLocal
+            from app.services.practice_generation_service import PracticeGenerationService
+
+            async with AsyncSessionLocal() as db:
+                service = PracticeGenerationService(db)
+                await service.get_or_generate(scan_id=scan_id, user_id=user_id)
+                logger.info("Background practice generation done for scan %d", scan_id)
+        except Exception:
+            logger.exception("Background practice generation failed for scan %d", scan_id)
