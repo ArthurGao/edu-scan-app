@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ScanResponse } from "@/lib/types";
 import { renderLatex, renderMathText } from "@/lib/renderMath";
 import { saveFormula } from "@/lib/api";
+import PracticeSection from "./PracticeSection";
 
 interface SolutionDisplayProps {
   data: ScanResponse;
@@ -409,6 +410,9 @@ export default function SolutionDisplay({
           </div>
         </div>
       )}
+
+      {/* Practice Similar Questions */}
+      <PracticeSection scanId={data.scan_id} />
     </div>
   );
 }

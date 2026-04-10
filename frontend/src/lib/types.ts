@@ -107,3 +107,68 @@ export interface FormulaDetail extends Formula {
   keywords: string[];
   related_formulas: Formula[];
 }
+
+export interface ExamPaper {
+  id: string;
+  title: string;
+  year: number;
+  subject: string;
+  level: number;
+  exam_code: string;
+  paper_type: string;
+  language: string;
+  total_questions: number;
+  created_at: string;
+}
+
+export interface PracticeQuestion {
+  id: string;
+  exam_paper_id: string;
+  question_number: string;
+  sub_question: string;
+  question_text: string;
+  question_type: string | null;
+  options: string[] | null;
+  has_image: boolean;
+  image_url: string | null;
+  order_index: number;
+}
+
+export interface QuestionAnswer {
+  id: string;
+  correct_answer: string | null;
+  accepted_answers: string[] | null;
+  answer_explanation: string | null;
+  marks: string | null;
+  outcome: number | null;
+}
+
+// Practice generation types
+export interface PracticeQuestionGenerated {
+  id: string;
+  question_text: string;
+  question_type: string | null;
+  difficulty: string | null;
+  difficulty_offset: number;
+  knowledge_points: string[] | null;
+  marks: string | null;
+  answered: boolean;
+  is_correct: boolean | null;
+}
+
+export interface GeneratePracticeResponse {
+  status: "ready" | "generating" | "error" | "empty";
+  scan_id: string;
+  questions: PracticeQuestionGenerated[];
+  message?: string;
+}
+
+export interface SubmitPracticeAnswerResponse {
+  is_correct: boolean;
+  grading_method: string;
+  correct_answer: string | null;
+  accepted_answers: string[] | null;
+  answer_explanation: string | null;
+  ai_feedback: string | null;
+  knowledge_points: string[] | null;
+}

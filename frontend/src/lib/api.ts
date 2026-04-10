@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { GeneratePracticeResponse, SubmitPracticeAnswerResponse } from "./types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
@@ -218,5 +219,87 @@ export async function saveFormula(data: {
   description?: string;
 }) {
   const res = await api.post("/formulas", data);
+  return res.data;
+}
+
+// Exams
+export async function getExams(params?: {
+  year?: number;
+  subject?: string;
+  level?: number;
+  language?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const res = await api.get("/exams", { params });
+  return res.data;
+}
+
+export async function getExamQuestions(
+  examId: string,
+  params?: {
+    question_type?: string;
+    question_number?: string;
+    page?: number;
+    limit?: number;
+  }
+) {
+  const res = await api.get(`/exams/${examId}/questions`, { params });
+  return res.data;
+}
+
+export async function revealAnswer(examId: string, questionId: string) {
+  const res = await api.post(`/exams/${examId}/questions/${questionId}/answer`);
+  return res.data;
+}
+
+export async function explainQuestion(
+  examId: string,
+  questionId: string
+): Promise<{ explanation: string }> {
+  const res = await api.post(
+    `/exams/${examId}/questions/${questionId}/explain`
+  );
+  return res.data;
+}
+
+// Practice Generation
+export async function generatePractice(
+  scanId: string,
+  refresh = false
+): Promise<GeneratePracticeResponse> {
+  const res = await api.post(`/practice/scan/${scanId}/generate`, null, {
+    params: refresh ? { refresh: true } : {},
+  });
+  return res.data;
+}
+
+export async function getPracticeQuestions(
+  scanId: string
+): Promise<GeneratePracticeResponse> {
+  const res = await api.get(`/practice/scan/${scanId}/questions`);
+  return res.data;
+}
+
+export async function submitPracticeAnswer(
+  questionId: string,
+  studentAnswer: string,
+  timeSpentSeconds?: number
+): Promise<SubmitPracticeAnswerResponse> {
+  const res = await api.post(`/practice/${questionId}/submit`, {
+    student_answer: studentAnswer,
+    time_spent_seconds: timeSpentSeconds,
+  });
+  return res.data;
+}
+
+export async function getPublicQuestions(params?: {
+  subject?: string;
+  difficulty?: string;
+  problem_type?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const res = await api.get("/practice/public", { params });
   return res.data;
 }

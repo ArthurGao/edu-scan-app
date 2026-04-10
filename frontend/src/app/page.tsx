@@ -1,532 +1,181 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import dynamic from "next/dynamic";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
-import UploadZone from "@/components/UploadZone";
-import SolutionDisplay from "@/components/SolutionDisplay";
-import ConversationThread from "@/components/ConversationThread";
-import MathPreview from "@/components/MathPreview";
-import LandingPage from "@/components/LandingPage";
-import { extractText, solveTextStream, addToMistakes } from "@/lib/api";
-import { ScanResponse, ConversationMessage, SSEStageEvent } from "@/lib/types";
+import { getHistory, getMistakes, getExams } from "@/lib/api";
 
-const MathInput = dynamic(() => import("@/components/MathInput"), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-40 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 animate-pulse" />
-  ),
-});
+interface Stats {
+  totalScans: number;
+  totalMistakes: number;
+  totalExams: number;
+  masteredCount: number;
+}
 
-type InputMode = "image" | "text";
-
-const subjects = [
-  { value: "", label: "Auto-detect" },
-  { value: "math", label: "Math" },
-  { value: "physics", label: "Physics" },
-  { value: "chemistry", label: "Chemistry" },
-  { value: "biology", label: "Biology" },
-  { value: "english", label: "English" },
-  { value: "chinese", label: "Chinese" },
+const quickActions = [
+  {
+    href: "/solve",
+    label: "Upload & Solve",
+    description: "Upload a photo of your homework and get AI solutions",
+    icon: (
+      <svg className="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5m0 0l5 5m-5-5v12" />
+      </svg>
+    ),
+    color: "bg-indigo-50 border-indigo-100 hover:border-indigo-300",
+  },
+  {
+    href: "/exams",
+    label: "Exam Practice",
+    description: "Practice with real NZQA exam papers and check your answers",
+    icon: (
+      <svg className="w-8 h-8 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+      </svg>
+    ),
+    color: "bg-purple-50 border-purple-100 hover:border-purple-300",
+  },
+  {
+    href: "/mistakes",
+    label: "Mistake Book",
+    description: "Review your mistakes and track what you've mastered",
+    icon: (
+      <svg className="w-8 h-8 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+      </svg>
+    ),
+    color: "bg-rose-50 border-rose-100 hover:border-rose-300",
+  },
+  {
+    href: "/formulas",
+    label: "Formula Library",
+    description: "Browse and search formulas across all subjects",
+    icon: (
+      <svg className="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.745 3A23.933 23.933 0 003 12c0 3.183.62 6.22 1.745 9M19.5 3c.967 2.78 1.5 5.817 1.5 9s-.533 6.22-1.5 9M8.25 8.885l1.444-.89a.75.75 0 011.105.402l2.402 7.206a.75.75 0 001.104.401l1.445-.889" />
+      </svg>
+    ),
+    color: "bg-amber-50 border-amber-100 hover:border-amber-300",
+  },
 ];
 
-export default function UploadSolvePage() {
-  const { isSignedIn, isLoaded } = useUser();
-  const [inputMode, setInputMode] = useState<InputMode>("image");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [problemText, setProblemText] = useState("");
-  const [subject, setSubject] = useState("");
-  const [extracting, setExtracting] = useState(false);
-  const [solving, setSolving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ScanResponse | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
-  const [solvingStage, setSolvingStage] = useState("");
-  const [ocrText, setOcrText] = useState("");
-  const [ocrReady, setOcrReady] = useState(false);
-  const [refImages, setRefImages] = useState<{ file: File; url: string }[]>([]);
-  const refImageInputRef = useRef<HTMLInputElement>(null);
+export default function DashboardPage() {
+  const { user, isSignedIn } = useUser();
+  const [stats, setStats] = useState<Stats>({
+    totalScans: 0,
+    totalMistakes: 0,
+    totalExams: 0,
+    masteredCount: 0,
+  });
+  const [loading, setLoading] = useState(true);
 
-  const loading = extracting || solving;
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const [historyData, mistakeData, examData] = await Promise.allSettled([
+          getHistory({ page: 1, limit: 1 }),
+          getMistakes({ page: 1, limit: 1 }),
+          getExams({ page: 1, limit: 1 }),
+        ]);
 
-  // Wrap plain OCR text in \text{} so MathLive renders it as normal text
-  const wrapOcrForMathLive = (raw: string): string => {
-    if (!raw.trim()) return "";
-    // If it already contains LaTeX commands, return as-is
-    if (raw.includes("\\")) return raw;
-    // Wrap each line in \text{} and join with newlines
-    return raw
-      .split("\n")
-      .map((line) => (line.trim() ? `\\text{${line.trim()}}` : ""))
-      .filter(Boolean)
-      .join(" \\\\ ");
-  };
-
-  // Auto-extract text when file is selected
-  const handleFileSelected = useCallback(async (file: File) => {
-    setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-    setResult(null);
-    setError(null);
-    setSaved(false);
-    setOcrText("");
-    setOcrReady(false);
-
-    // Auto-trigger OCR
-    setExtracting(true);
-    try {
-      const data = await extractText(file);
-      setOcrText(wrapOcrForMathLive(data.ocr_text));
-      setOcrReady(true);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to extract text. Please try again.";
-      setError(message);
-    } finally {
-      setExtracting(false);
+        setStats({
+          totalScans:
+            historyData.status === "fulfilled" ? historyData.value.total : 0,
+          totalMistakes:
+            mistakeData.status === "fulfilled" ? mistakeData.value.total : 0,
+          totalExams:
+            examData.status === "fulfilled" ? examData.value.total : 0,
+          masteredCount: 0,
+        });
+      } catch {
+        // Stats are optional
+      } finally {
+        setLoading(false);
+      }
     }
+    fetchStats();
   }, []);
 
-  const handleRetryExtract = async () => {
-    if (!selectedFile) return;
-    setExtracting(true);
-    setError(null);
-    setOcrText("");
-    setOcrReady(false);
-    try {
-      const data = await extractText(selectedFile);
-      setOcrText(wrapOcrForMathLive(data.ocr_text));
-      setOcrReady(true);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to extract text. Please try again.";
-      setError(message);
-    } finally {
-      setExtracting(false);
-    }
-  };
+  const greeting = (() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
+    return "Good evening";
+  })();
 
-  const handleTabSwitch = (mode: InputMode) => {
-    setInputMode(mode);
-    setResult(null);
-    setError(null);
-    setSaved(false);
-    setOcrText("");
-    setOcrReady(false);
-  };
-
-  const handleAddRefImages = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files) return;
-      const newImages = Array.from(files)
-        .filter((f) => f.type.startsWith("image/"))
-        .map((f) => ({ file: f, url: URL.createObjectURL(f) }));
-      setRefImages((prev) => [...prev, ...newImages]);
-      e.target.value = "";
-    },
-    []
-  );
-
-  const handleRemoveRefImage = useCallback((index: number) => {
-    setRefImages((prev) => {
-      URL.revokeObjectURL(prev[index].url);
-      return prev.filter((_, i) => i !== index);
-    });
-  }, []);
-
-  const handleSolve = async () => {
-    const text = inputMode === "image" ? ocrText.trim() : problemText.trim();
-    if (!text) return;
-    const solveInput =
-      inputMode === "text" && text && !text.includes("$")
-        ? `$${text}$`
-        : text;
-    setSolving(true);
-    setSolvingStage("Starting...");
-    setError(null);
-    setResult(null);
-    setMessages([]);
-    try {
-      await solveTextStream(
-        solveInput,
-        (event, data) => {
-          if (event === "stage") {
-            const stage = data as SSEStageEvent;
-            setSolvingStage(stage.message);
-          } else if (event === "complete") {
-            setResult(data as ScanResponse);
-          } else if (event === "error") {
-            const err = data as { message: string };
-            setError(err.message);
-          }
-        },
-        subject || undefined,
-        undefined,
-      );
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to solve. Please try again.";
-      setError(message);
-    } finally {
-      setSolving(false);
-      setSolvingStage("");
-    }
-  };
-
-  const handleSaveToMistakes = async () => {
-    if (!result) return;
-    setIsSaving(true);
-    try {
-      await addToMistakes(result.scan_id);
-      setSaved(true);
-    } catch {
-      setError("Failed to save to mistake book.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const canSolve =
-    inputMode === "image"
-      ? ocrReady && ocrText.trim().length > 0
-      : problemText.trim().length > 0;
-
-  if (!isLoaded) return null;
-  if (!isSignedIn) return <LandingPage />;
+  const displayName = user?.firstName || "Student";
 
   return (
     <div className="space-y-8">
-      {/* Page header */}
+      {/* Welcome header */}
       <div className="pt-4 lg:pt-0">
-        <h1 className="text-2xl font-bold text-gray-900">Upload & Solve</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {greeting}
+          {isSignedIn ? `, ${displayName}` : ""}!
+        </h1>
         <p className="text-gray-500 mt-1">
-          Upload a photo or type your homework problem to get an AI-powered
-          solution
+          What would you like to study today?
         </p>
       </div>
 
-      {/* Input mode tabs */}
-      <div className="flex border-b border-gray-200">
-        <button
-          onClick={() => handleTabSwitch("image")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            inputMode === "image"
-              ? "border-indigo-500 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-          }`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-          </svg>
-          Upload Image
-        </button>
-        <button
-          onClick={() => handleTabSwitch("text")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            inputMode === "text"
-              ? "border-indigo-500 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-          }`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
-          </svg>
-          Type Text
-        </button>
+      {/* Stats cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <p className="text-xs text-gray-500 font-medium">Problems Solved</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {loading ? "-" : stats.totalScans}
+          </p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <p className="text-xs text-gray-500 font-medium">Exam Papers</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {loading ? "-" : stats.totalExams}
+          </p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <p className="text-xs text-gray-500 font-medium">In Mistake Book</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {loading ? "-" : stats.totalMistakes}
+          </p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <p className="text-xs text-gray-500 font-medium">Formulas</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            <Link
+              href="/formulas"
+              className="text-indigo-600 hover:text-indigo-700"
+            >
+              Browse
+            </Link>
+          </p>
+        </div>
       </div>
 
-      {/* Image mode */}
-      {inputMode === "image" && (
-        <>
-          {/* Upload zone — always visible in image mode for re-upload */}
-          {!ocrReady && !extracting && (
-            <UploadZone
-              onFileSelected={handleFileSelected}
-              selectedFile={selectedFile}
-              previewUrl={previewUrl}
-            />
-          )}
-
-          {/* Extracting state */}
-          {extracting && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-indigo-50 rounded-full mb-3">
-                <svg className="animate-spin w-6 h-6 text-indigo-500" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              </div>
-              <p className="text-gray-700 font-medium">Extracting text from image...</p>
-              <p className="text-gray-500 text-sm mt-1">This may take a few seconds</p>
-            </div>
-          )}
-
-          {/* Image panel + MathLive OCR editor */}
-          {ocrReady && (
-            <div className="space-y-4">
-              {/* Image reference + MathLive editor */}
-              {previewUrl && (
-                <div className="space-y-3">
-                  {/* Uploaded image — full width, larger display */}
-                  <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={previewUrl}
-                      alt="Uploaded problem"
-                      className="w-full object-contain bg-gray-50"
-                      style={{ maxHeight: "360px" }}
-                    />
-                    <div className="px-3 py-2 flex items-center justify-between border-t border-gray-100">
-                      <span className="text-xs font-medium text-gray-500">Uploaded Image</span>
-                      <button
-                        onClick={() => {
-                          setOcrReady(false);
-                          setOcrText("");
-                          setResult(null);
-                        }}
-                        className="text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-                      >
-                        Change
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* MathLive editor — below image (unmount when result exists to remove keyboard container) */}
-                  {!result && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-medium text-gray-700">Recognized Text</span>
-                          <span className="text-xs text-gray-400 hidden sm:inline">(edit if needed)</span>
-                        </div>
-                        <button
-                          onClick={handleRetryExtract}
-                          className="text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors"
-                        >
-                          Re-extract
-                        </button>
-                      </div>
-                      <MathInput
-                        value={ocrText}
-                        onChange={(latex: string) => setOcrText(latex)}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Subject + Solve button */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <div className="flex-1 w-full sm:w-auto">
-                  <label htmlFor="subject-img" className="block text-sm font-medium text-gray-700 mb-1">
-                    Subject (optional)
-                  </label>
-                  <select
-                    id="subject-img"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    className="w-full sm:w-48 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                  >
-                    {subjects.map((s) => (
-                      <option key={s.value} value={s.value}>{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  onClick={handleSolve}
-                  disabled={!canSolve || loading}
-                  className="mt-auto px-6 py-2.5 bg-indigo-500 text-white rounded-lg font-medium text-sm hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {solving ? (
-                    <>
-                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Solving...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-                      </svg>
-                      Solve
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Text mode */}
-      {inputMode === "text" && (
-        <>
-          {/* Reference images + MathLive editor */}
-          <div className="space-y-3">
-            {/* Reference image panels */}
-            {refImages.length > 0 && (
-              <div className="flex flex-wrap gap-3">
-                {refImages.map((img, i) => (
-                  <div
-                    key={img.url}
-                    className="relative group rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden w-28 md:w-44"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={img.url}
-                      alt={`Reference ${i + 1}`}
-                      className="w-full h-24 md:h-32 object-contain bg-gray-50"
-                    />
-                    <button
-                      onClick={() => handleRemoveRefImage(i)}
-                      className="absolute top-1.5 right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      &times;
-                    </button>
-                    <div className="px-2 py-1 text-xs text-gray-500 truncate text-center">
-                      {img.file.name}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add image button */}
-            <input
-              ref={refImageInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleAddRefImages}
-              className="hidden"
-            />
-            <button
-              type="button"
-              onClick={() => refImageInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+      {/* Quick actions */}
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          Quick Actions
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {quickActions.map((action) => (
+            <Link
+              key={action.href}
+              href={action.href}
+              className={`flex items-start gap-4 p-5 rounded-xl border transition-all ${action.color}`}
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-              </svg>
-              Attach Reference Image
-            </button>
-
-            {/* MathLive editor — unmount when result exists to remove keyboard container */}
-            {!result && (
-              <MathInput
-                value={problemText}
-                onChange={(latex: string) => {
-                  setProblemText(latex);
-                  setResult(null);
-                  setError(null);
-                  setSaved(false);
-                }}
-              />
-            )}
-          </div>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className="flex-1 w-full sm:w-auto">
-              <label htmlFor="subject-text" className="block text-sm font-medium text-gray-700 mb-1">
-                Subject (optional)
-              </label>
-              <select
-                id="subject-text"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                className="w-full sm:w-48 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-              >
-                {subjects.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              onClick={handleSolve}
-              disabled={!canSolve || loading}
-              className="mt-auto px-6 py-2.5 bg-indigo-500 text-white rounded-lg font-medium text-sm hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {solving ? (
-                <>
-                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Solving...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-                  </svg>
-                  Solve
-                </>
-              )}
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-          </svg>
-          <p className="text-sm text-red-700">{error}</p>
+              <div className="flex-shrink-0 mt-0.5">{action.icon}</div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">
+                  {action.label}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  {action.description}
+                </p>
+              </div>
+            </Link>
+          ))}
         </div>
-      )}
-
-      {/* Solving state */}
-      {solving && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-50 rounded-full mb-4">
-            <svg className="animate-spin w-8 h-8 text-indigo-500" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          </div>
-          <p className="text-gray-700 font-medium">{solvingStage || "Analyzing your problem..."}</p>
-          <p className="text-gray-500 text-sm mt-1">This may take a few seconds</p>
-        </div>
-      )}
-
-      {/* Result + Conversation */}
-      {result && (
-        <>
-          <SolutionDisplay
-            data={result}
-            onSaveToMistakes={saved ? undefined : handleSaveToMistakes}
-            isSaving={isSaving}
-          />
-          {saved && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
-              <svg className="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-              <p className="text-sm text-emerald-700">
-                Saved to your Mistake Book for review
-              </p>
-            </div>
-          )}
-          <ConversationThread
-            scanId={result.scan_id}
-            messages={messages}
-            onNewMessage={(msg) => setMessages((prev) => [...prev, msg])}
-          />
-        </>
-      )}
+      </div>
     </div>
   );
 }

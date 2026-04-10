@@ -1,6 +1,7 @@
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.language_models import BaseChatModel
 
 from app.config import get_settings
@@ -9,6 +10,7 @@ LLM_REGISTRY: dict[str, type[BaseChatModel]] = {
     "claude": ChatAnthropic,
     "openai": ChatOpenAI,
     "gemini": ChatGoogleGenerativeAI,
+    "groq": ChatGroq,
 }
 
 MODEL_CONFIG: dict[str, dict[str, str]] = {
@@ -25,6 +27,11 @@ MODEL_CONFIG: dict[str, dict[str, str]] = {
         "fast": "gemini-2.5-flash-lite",
         "verify": "gemini-2.5-flash-lite",
         "evaluate": "gemini-2.5-flash",
+        "grading": "gemini-2.5-flash",
+    },
+    "groq": {
+        "strong": "qwen-qwq-32b",
+        "fast": "qwen3-32b",
     },
 }
 
@@ -50,6 +57,9 @@ def _get_api_key_kwargs(provider: str) -> dict:
     elif provider == "gemini":
         key = settings.google_api_key
         return {"google_api_key": key} if key else {}
+    elif provider == "groq":
+        key = settings.groq_api_key
+        return {"api_key": key} if key else {}
     return {}
 
 
@@ -73,8 +83,25 @@ def select_llm(
     preferred: str | None,
     subject: str,
     attempt: int = 0,
+    user_tier: str = "paid",
 ) -> BaseChatModel:
-    """Select LLM based on preference, subject, and retry rotation."""
+    """Select LLM based on preference, subject, retry rotation, and user tier.
+
+    For paid users: subject-based routing (Claude/OpenAI).
+    For free users: Gemini → Groq fallback chain.
+    """
+    if user_tier == "free":
+        # Free tier: Gemini first, then Groq fallback
+        free_chain = [
+            ("gemini", "strong"),
+            ("groq", "strong"),
+            ("groq", "fast"),
+        ]
+        idx = min(attempt, len(free_chain) - 1)
+        provider, tier = free_chain[idx]
+        return get_llm(tier, provider)
+
+    # Paid tier: existing subject-based routing
     providers = list(LLM_REGISTRY.keys())
 
     if attempt == 0:

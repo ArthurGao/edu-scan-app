@@ -11,6 +11,11 @@ from app.models.subscription_tier import SubscriptionTier
 from app.models.daily_usage import DailyUsage
 from app.models.guest_usage import GuestUsage
 from app.models.system_setting import SystemSetting
+from app.models.semantic_cache import SemanticCache
+from app.models.exam_paper import ExamPaper, PracticeQuestion
+from app.models.exam_session import ExamSession, ExamAnswer
+from app.models.practice_answer import PracticeAnswer
+from app.models.grading_cache import GradingCache
 
 __all__ = [
     "User",
@@ -26,4 +31,11 @@ __all__ = [
     "DailyUsage",
     "GuestUsage",
     "SystemSetting",
+    "SemanticCache",
+    "ExamPaper",
+    "PracticeQuestion",
+    "ExamSession",
+    "ExamAnswer",
+    "PracticeAnswer",
+    "GradingCache",
 ]

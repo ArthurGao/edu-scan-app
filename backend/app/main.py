@@ -14,6 +14,10 @@ from app.database import engine
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Silence SQLAlchemy SQL echo regardless of debug mode
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+
 _redis = None
 
 

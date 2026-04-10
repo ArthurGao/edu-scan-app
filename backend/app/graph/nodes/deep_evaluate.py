@@ -32,7 +32,27 @@ async def run_deep_evaluate(
         )
 
         result = await llm.ainvoke(messages)
-        parsed = json.loads(result.content)
+        content = result.content
+
+        # Gemini thinking models may return empty content with output in thinking field
+        if not content or not content.strip():
+            logger.warning("deep_evaluate: empty content from model, skipping")
+            return None
+
+        # Strip markdown code fences if present
+        stripped = content.strip()
+        if stripped.startswith("```"):
+            stripped = stripped.split("```", 2)[1]
+            if stripped.startswith("json"):
+                stripped = stripped[4:]
+            stripped = stripped.rsplit("```", 1)[0].strip()
+
+        # Extract JSON object if there's surrounding text
+        start, end = stripped.find("{"), stripped.rfind("}") + 1
+        if start >= 0 and end > start:
+            stripped = stripped[start:end]
+
+        parsed = json.loads(stripped)
 
         # Validate expected fields
         expected_fields = [
