@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SolveRequest(BaseModel):
@@ -77,3 +77,8 @@ class ConversationMessageResponse(BaseModel):
 class ConversationResponse(BaseModel):
     messages: List[ConversationMessageResponse]
     total_messages: int
+
+
+class RateRequest(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = None

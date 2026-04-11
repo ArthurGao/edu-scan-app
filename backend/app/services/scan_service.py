@@ -21,6 +21,7 @@ from app.graph.nodes.deep_evaluate import run_deep_evaluate
 from app.llm.embeddings import embed_text
 from app.llm.prompts.framework import build_framework_messages
 from app.llm.registry import get_llm
+from app.observability.langsmith_client import get_langsmith_client
 from app.observability.tracing import spawn_in_current_context
 from app.models.scan_record import ScanRecord
 from app.models.semantic_cache import SemanticCache
@@ -526,6 +527,54 @@ class ScanService:
             "reply": result.get("reply", ""),
             "tokens_used": result.get("tokens_used", 0),
         }
+
+    async def rate_solution(
+        self,
+        scan_id: int,
+        user_id: int,
+        rating: int,
+        comment: Optional[str] = None,
+    ) -> None:
+        """Persist user rating on a solution and push it to LangSmith as feedback.
+
+        Fail-open: LangSmith errors are logged but never raised.
+        """
+        if not 1 <= rating <= 5:
+            raise ValueError(f"rating must be 1-5, got {rating}")
+
+        result = await self.db.execute(
+            select(Solution)
+            .join(ScanRecord, Solution.scan_id == ScanRecord.id)
+            .where(Solution.scan_id == scan_id, ScanRecord.user_id == user_id)
+            .order_by(Solution.created_at.desc())
+            .limit(1)
+        )
+        solution = result.scalar_one_or_none()
+        if solution is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="solution_not_found")
+
+        solution.rating = rating
+        await self.db.commit()
+
+        run_id = solution.langsmith_run_id
+        if not run_id:
+            return
+        client = get_langsmith_client()
+        if client is None:
+            return
+        try:
+            client.create_feedback(
+                run_id=run_id,
+                key="user_rating",
+                score=rating / 5.0,
+                value=rating,
+                comment=comment,
+            )
+        except Exception as e:
+            logger.warning(
+                "LangSmith create_feedback failed for run %s: %s", run_id, e,
+            )
 
     async def get_scan_result(self, scan_id: int) -> Optional[ScanResponse]:
         """Retrieve a previous scan result."""
