@@ -21,6 +21,7 @@ from app.graph.nodes.deep_evaluate import run_deep_evaluate
 from app.llm.embeddings import embed_text
 from app.llm.prompts.framework import build_framework_messages
 from app.llm.registry import get_llm
+from app.observability.tracing import spawn_in_current_context
 from app.models.scan_record import ScanRecord
 from app.models.semantic_cache import SemanticCache
 from app.models.solution import Solution
@@ -329,7 +330,7 @@ class ScanService:
 
         # Only deep-evaluate fresh LLM solutions (not cache hits)
         if cache_layer == 4:
-            asyncio.create_task(
+            spawn_in_current_context(
                 self._run_deep_evaluate_background(
                     solution_id=solution.id,
                     problem_text=result.get("ocr_text", ""),
@@ -342,14 +343,14 @@ class ScanService:
             )
         ocr_text = result.get("ocr_text", "")
         if cache_layer == 4 and ocr_text and final:
-            asyncio.create_task(
+            spawn_in_current_context(
                 self._write_to_cache(
                     ocr_text=ocr_text,
                     response=final,
                     model_used=result.get("llm_model", "unknown"),
                 )
             )
-            asyncio.create_task(
+            spawn_in_current_context(
                 self._generate_framework_background(
                     ocr_text=ocr_text,
                     solution_raw=result.get("solution_raw", ""),
@@ -358,7 +359,7 @@ class ScanService:
             )
         # Generate practice questions in background
         if scan_record.user_id:
-            asyncio.create_task(
+            spawn_in_current_context(
                 self._generate_practice_background(
                     scan_id=scan_record.id,
                     user_id=scan_record.user_id,
