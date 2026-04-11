@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from fastapi import UploadFile
 from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -37,6 +38,35 @@ _settings = get_settings()
 
 def _input_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _tag_current_run(
+    *,
+    subject: Optional[str],
+    user_tier: str,
+    provider: Optional[str],
+    user_id: int,
+) -> None:
+    """Attach business-dimension tags to the active LangSmith run, if any.
+
+    Safe no-op when tracing is disabled (``get_current_run_tree`` returns None).
+    Failures are swallowed — observability must never break user requests.
+    """
+    try:
+        tree = get_current_run_tree()
+    except Exception:
+        return
+    if tree is None:
+        return
+    try:
+        tree.add_tags([
+            f"subject:{subject or 'unknown'}",
+            f"tier:{user_tier}",
+            f"provider:{provider or 'default'}",
+        ])
+        tree.add_metadata({"user_id": user_id})
+    except Exception:
+        pass
 
 
 class ScanService:
@@ -71,6 +101,11 @@ class ScanService:
                     status_code=429,
                     detail={"error": "daily_limit_exceeded", "remaining": 0},
                 )
+
+        _tag_current_run(
+            subject=subject, user_tier=user_tier,
+            provider=ai_provider, user_id=user_id,
+        )
 
         image_url: Optional[str] = None
         image_bytes: Optional[bytes] = None
@@ -135,6 +170,11 @@ class ScanService:
                     status_code=429,
                     detail={"error": "daily_limit_exceeded", "remaining": 0},
                 )
+
+        _tag_current_run(
+            subject=subject, user_tier=user_tier,
+            provider=ai_provider, user_id=user_id,
+        )
 
         image_url: Optional[str] = None
         image_bytes: Optional[bytes] = None
