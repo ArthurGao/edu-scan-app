@@ -5,6 +5,7 @@ import logging
 import re
 from datetime import datetime, timezone
 
+from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,6 +26,7 @@ class GradingService:
     # Public
     # ------------------------------------------------------------------
 
+    @traceable(run_type="chain", name="grading.session", tags=["grading", "exam"])
     async def grade_session(self, session_id: int) -> ExamSession:
         """Grade all answers in a session and update totals."""
         result = await self.db.execute(

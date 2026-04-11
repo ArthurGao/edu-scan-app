@@ -482,6 +482,7 @@ class ScanService:
         except Exception as e:
             logger.warning("Background deep_evaluate failed for solution %s: %s", solution_id, e)
 
+    @traceable(run_type="chain", name="scan.followup", tags=["followup"])
     async def followup(
         self, scan_id: int, user_id: int, message: str
     ) -> dict:
