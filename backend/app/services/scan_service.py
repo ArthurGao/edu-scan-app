@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import UploadFile
+from langsmith import traceable
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -48,6 +49,7 @@ class ScanService:
         self._conversation_service = ConversationService(db)
         self._embedding_service = EmbeddingService(db)
 
+    @traceable(run_type="chain", name="scan.solve", tags=["scan"])
     async def scan_and_solve(
         self,
         user_id: int,
@@ -111,6 +113,7 @@ class ScanService:
         "enrich": "Enriching solution...",
     }
 
+    @traceable(run_type="chain", name="scan.solve.stream", tags=["scan", "stream"])
     async def scan_and_solve_stream(
         self,
         user_id: int,
