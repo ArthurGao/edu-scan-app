@@ -273,6 +273,15 @@ class ScanService:
         else:
             verification_status = "unverified"
 
+        # Capture parent run id so user ratings can later post feedback.
+        langsmith_run_id: Optional[str] = None
+        try:
+            tree = get_current_run_tree()
+            if tree is not None:
+                langsmith_run_id = str(tree.id)
+        except Exception:
+            langsmith_run_id = None
+
         solution = Solution(
             scan_id=scan_record.id,
             ai_provider=result.get("llm_provider", "unknown"),
@@ -288,6 +297,7 @@ class ScanService:
             related_formula_ids=result.get("related_formula_ids", []),
             verification_status=verification_status,
             verification_confidence=verify_confidence,
+            langsmith_run_id=langsmith_run_id,
         )
         self.db.add(solution)
 

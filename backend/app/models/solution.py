@@ -39,6 +39,9 @@ class Solution(Base):
     deep_evaluation: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSONB, nullable=True
     )
+    langsmith_run_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Relationships
