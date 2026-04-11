@@ -67,9 +67,12 @@ class Settings(BaseSettings):
     max_followup_messages: int = 20
     conversation_ttl_hours: int = 24
 
-    # Observability (optional)
+    # Observability (optional — LangSmith)
+    langsmith_tracing: bool = False
     langsmith_api_key: str = ""
     langsmith_project: str = "eduscan"
+    langsmith_endpoint: str = ""  # empty = SDK default (US region)
+    langsmith_sampling_rate: float = 1.0  # 0.0–1.0, honored by our wrapper
 
     # Clerk Auth
     clerk_jwks_url: str = ""
