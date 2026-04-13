@@ -71,6 +71,30 @@ def _tag_current_run(
         pass
 
 
+def _tag_cache_layer(cache_layer: Optional[int]) -> None:
+    """Append ``cache_layer:L<n>`` to the active LangSmith run.
+
+    Called after the solve graph finishes, once the real ``cache_layer``
+    value (1=Redis, 2=pgvector, 3=framework, 4=full solve) is known.
+    Drives the LangSmith dashboard that shows hit rate by layer.
+
+    Safe no-op when tracing is disabled, ``cache_layer`` is None, or any
+    exception is raised — observability must never break user requests.
+    """
+    if cache_layer is None:
+        return
+    try:
+        tree = get_current_run_tree()
+    except Exception:
+        return
+    if tree is None:
+        return
+    try:
+        tree.add_tags([f"cache_layer:L{cache_layer}"])
+    except Exception:
+        pass
+
+
 class ScanService:
     """Service for handling problem scanning and solving via LangGraph."""
 
@@ -130,6 +154,8 @@ class ScanService:
             "user_tier": user_tier,
             "attempt_count": 0,
         })
+
+        _tag_cache_layer(result.get("cache_layer"))
 
         response = await self._persist_and_build_response(
             result, user_id, image_url, grade_level
@@ -224,6 +250,7 @@ class ScanService:
 
             # -- Pipeline complete — persist (mirrors scan_and_solve) -------
             result = accumulated
+            _tag_cache_layer(result.get("cache_layer"))
             response = await self._persist_and_build_response(
                 result, user_id, image_url, grade_level
             )
@@ -366,6 +393,7 @@ class ScanService:
                     ocr_text=ocr_text,
                     solution_raw=result.get("solution_raw", ""),
                     subject=result.get("detected_subject", "math"),
+                    provider=result.get("llm_provider"),
                 )
             )
         # Generate practice questions in background
@@ -427,14 +455,26 @@ class ScanService:
             logger.warning("Cache semantic_cache write failed: %s", e)
 
     async def _generate_framework_background(
-        self, ocr_text: str, solution_raw: str, subject: str
+        self,
+        ocr_text: str,
+        solution_raw: str,
+        subject: str,
+        provider: Optional[str] = None,
     ) -> None:
-        """Generate solution_framework via Haiku and store in semantic_cache (background)."""
+        """Generate solution_framework and store in semantic_cache (background).
+
+        Uses the same provider that ran the solve so free-tier Gemini solves
+        don't leak into paid-tier Claude Haiku for the framework step.
+        Falls back to the configured default provider when ``provider`` is
+        None (e.g. cache hits from pre-fix rows).
+        """
         if not ocr_text or not solution_raw:
             return
         try:
-            # Use fast model — framework generation doesn't need Sonnet
-            llm = get_llm("fast")
+            # Use fast tier of the same provider that ran solve — no need for
+            # Sonnet here, but keep the provider consistent with solve so we
+            # don't mix billing tiers.
+            llm = get_llm("fast", provider=provider)
             messages = build_framework_messages(ocr_text, solution_raw, subject)
             result = await llm.ainvoke(messages)
 
