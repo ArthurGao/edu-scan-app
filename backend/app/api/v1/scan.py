@@ -11,6 +11,7 @@ from app.models.user import User
 from app.schemas.scan import (
     ScanResponse, FollowUpRequest, FollowUpResponse,
     ConversationResponse, ConversationMessageResponse,
+    RateRequest,
 )
 from app.services.scan_service import ScanService
 from app.services.conversation_service import ConversationService
@@ -187,6 +188,24 @@ async def followup(
         reply=result["reply"],
         tokens_used=result.get("tokens_used", 0),
     )
+
+
+@router.post("/{scan_id}/rate")
+async def rate_solution(
+    scan_id: int,
+    payload: RateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_or_guest_user),
+):
+    """Rate a solution (1-5) and push the feedback to LangSmith if configured."""
+    service = ScanService(db)
+    await service.rate_solution(
+        scan_id=scan_id,
+        user_id=current_user.id,
+        rating=payload.rating,
+        comment=payload.comment,
+    )
+    return {"status": "ok"}
 
 
 @router.get("/{scan_id}/conversation", response_model=ConversationResponse)

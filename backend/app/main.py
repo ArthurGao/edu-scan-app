@@ -10,6 +10,7 @@ from app.api.v1.router import api_router
 from app.config import get_settings
 from app.core.rate_limiter import RateLimitMiddleware
 from app.database import engine
+from app.observability.langsmith_client import get_langsmith_client
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -24,6 +25,12 @@ _redis = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _redis
+
+    # LangSmith — init cache & export env vars before LangChain first runs.
+    ls_client = get_langsmith_client()
+    if ls_client is not None:
+        logger.info("LangSmith observability active")
+
     # Startup — fix sequences that may be out of sync with seeded data
     async with engine.begin() as conn:
         await conn.execute(text(
@@ -42,6 +49,11 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if _redis:
         await _redis.aclose()
+    if ls_client is not None:
+        try:
+            ls_client.flush()
+        except Exception as e:
+            logger.warning("LangSmith flush on shutdown failed: %s", e)
 
 
 app = FastAPI(

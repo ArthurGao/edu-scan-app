@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import UploadFile
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -19,6 +21,8 @@ from app.graph.nodes.deep_evaluate import run_deep_evaluate
 from app.llm.embeddings import embed_text
 from app.llm.prompts.framework import build_framework_messages
 from app.llm.registry import get_llm
+from app.observability.langsmith_client import get_langsmith_client
+from app.observability.tracing import spawn_in_current_context
 from app.models.scan_record import ScanRecord
 from app.models.semantic_cache import SemanticCache
 from app.models.solution import Solution
@@ -38,6 +42,59 @@ def _input_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _tag_current_run(
+    *,
+    subject: Optional[str],
+    user_tier: str,
+    provider: Optional[str],
+    user_id: int,
+) -> None:
+    """Attach business-dimension tags to the active LangSmith run, if any.
+
+    Safe no-op when tracing is disabled (``get_current_run_tree`` returns None).
+    Failures are swallowed — observability must never break user requests.
+    """
+    try:
+        tree = get_current_run_tree()
+    except Exception:
+        return
+    if tree is None:
+        return
+    try:
+        tree.add_tags([
+            f"subject:{subject or 'unknown'}",
+            f"tier:{user_tier}",
+            f"provider:{provider or 'default'}",
+        ])
+        tree.add_metadata({"user_id": user_id})
+    except Exception:
+        pass
+
+
+def _tag_cache_layer(cache_layer: Optional[int]) -> None:
+    """Append ``cache_layer:L<n>`` to the active LangSmith run.
+
+    Called after the solve graph finishes, once the real ``cache_layer``
+    value (1=Redis, 2=pgvector, 3=framework, 4=full solve) is known.
+    Drives the LangSmith dashboard that shows hit rate by layer.
+
+    Safe no-op when tracing is disabled, ``cache_layer`` is None, or any
+    exception is raised — observability must never break user requests.
+    """
+    if cache_layer is None:
+        return
+    try:
+        tree = get_current_run_tree()
+    except Exception:
+        return
+    if tree is None:
+        return
+    try:
+        tree.add_tags([f"cache_layer:L{cache_layer}"])
+    except Exception:
+        pass
+
+
 class ScanService:
     """Service for handling problem scanning and solving via LangGraph."""
 
@@ -48,6 +105,7 @@ class ScanService:
         self._conversation_service = ConversationService(db)
         self._embedding_service = EmbeddingService(db)
 
+    @traceable(run_type="chain", name="scan.solve", tags=["scan"])
     async def scan_and_solve(
         self,
         user_id: int,
@@ -69,6 +127,11 @@ class ScanService:
                     status_code=429,
                     detail={"error": "daily_limit_exceeded", "remaining": 0},
                 )
+
+        _tag_current_run(
+            subject=subject, user_tier=user_tier,
+            provider=ai_provider, user_id=user_id,
+        )
 
         image_url: Optional[str] = None
         image_bytes: Optional[bytes] = None
@@ -92,6 +155,8 @@ class ScanService:
             "attempt_count": 0,
         })
 
+        _tag_cache_layer(result.get("cache_layer"))
+
         response = await self._persist_and_build_response(
             result, user_id, image_url, grade_level
         )
@@ -111,6 +176,7 @@ class ScanService:
         "enrich": "Enriching solution...",
     }
 
+    @traceable(run_type="chain", name="scan.solve.stream", tags=["scan", "stream"])
     async def scan_and_solve_stream(
         self,
         user_id: int,
@@ -132,6 +198,11 @@ class ScanService:
                     status_code=429,
                     detail={"error": "daily_limit_exceeded", "remaining": 0},
                 )
+
+        _tag_current_run(
+            subject=subject, user_tier=user_tier,
+            provider=ai_provider, user_id=user_id,
+        )
 
         image_url: Optional[str] = None
         image_bytes: Optional[bytes] = None
@@ -179,6 +250,7 @@ class ScanService:
 
             # -- Pipeline complete — persist (mirrors scan_and_solve) -------
             result = accumulated
+            _tag_cache_layer(result.get("cache_layer"))
             response = await self._persist_and_build_response(
                 result, user_id, image_url, grade_level
             )
@@ -229,6 +301,15 @@ class ScanService:
         else:
             verification_status = "unverified"
 
+        # Capture parent run id so user ratings can later post feedback.
+        langsmith_run_id: Optional[str] = None
+        try:
+            tree = get_current_run_tree()
+            if tree is not None:
+                langsmith_run_id = str(tree.id)
+        except Exception:
+            langsmith_run_id = None
+
         solution = Solution(
             scan_id=scan_record.id,
             ai_provider=result.get("llm_provider", "unknown"),
@@ -244,6 +325,7 @@ class ScanService:
             related_formula_ids=result.get("related_formula_ids", []),
             verification_status=verification_status,
             verification_confidence=verify_confidence,
+            langsmith_run_id=langsmith_run_id,
         )
         self.db.add(solution)
 
@@ -286,7 +368,7 @@ class ScanService:
 
         # Only deep-evaluate fresh LLM solutions (not cache hits)
         if cache_layer == 4:
-            asyncio.create_task(
+            spawn_in_current_context(
                 self._run_deep_evaluate_background(
                     solution_id=solution.id,
                     problem_text=result.get("ocr_text", ""),
@@ -299,23 +381,24 @@ class ScanService:
             )
         ocr_text = result.get("ocr_text", "")
         if cache_layer == 4 and ocr_text and final:
-            asyncio.create_task(
+            spawn_in_current_context(
                 self._write_to_cache(
                     ocr_text=ocr_text,
                     response=final,
                     model_used=result.get("llm_model", "unknown"),
                 )
             )
-            asyncio.create_task(
+            spawn_in_current_context(
                 self._generate_framework_background(
                     ocr_text=ocr_text,
                     solution_raw=result.get("solution_raw", ""),
                     subject=result.get("detected_subject", "math"),
+                    provider=result.get("llm_provider"),
                 )
             )
         # Generate practice questions in background
         if scan_record.user_id:
-            asyncio.create_task(
+            spawn_in_current_context(
                 self._generate_practice_background(
                     scan_id=scan_record.id,
                     user_id=scan_record.user_id,
@@ -372,14 +455,26 @@ class ScanService:
             logger.warning("Cache semantic_cache write failed: %s", e)
 
     async def _generate_framework_background(
-        self, ocr_text: str, solution_raw: str, subject: str
+        self,
+        ocr_text: str,
+        solution_raw: str,
+        subject: str,
+        provider: Optional[str] = None,
     ) -> None:
-        """Generate solution_framework via Haiku and store in semantic_cache (background)."""
+        """Generate solution_framework and store in semantic_cache (background).
+
+        Uses the same provider that ran the solve so free-tier Gemini solves
+        don't leak into paid-tier Claude Haiku for the framework step.
+        Falls back to the configured default provider when ``provider`` is
+        None (e.g. cache hits from pre-fix rows).
+        """
         if not ocr_text or not solution_raw:
             return
         try:
-            # Use fast model — framework generation doesn't need Sonnet
-            llm = get_llm("fast")
+            # Use fast tier of the same provider that ran solve — no need for
+            # Sonnet here, but keep the provider consistent with solve so we
+            # don't mix billing tiers.
+            llm = get_llm("fast", provider=provider)
             messages = build_framework_messages(ocr_text, solution_raw, subject)
             result = await llm.ainvoke(messages)
 
@@ -438,6 +533,7 @@ class ScanService:
         except Exception as e:
             logger.warning("Background deep_evaluate failed for solution %s: %s", solution_id, e)
 
+    @traceable(run_type="chain", name="scan.followup", tags=["followup"])
     async def followup(
         self, scan_id: int, user_id: int, message: str
     ) -> dict:
@@ -471,6 +567,54 @@ class ScanService:
             "reply": result.get("reply", ""),
             "tokens_used": result.get("tokens_used", 0),
         }
+
+    async def rate_solution(
+        self,
+        scan_id: int,
+        user_id: int,
+        rating: int,
+        comment: Optional[str] = None,
+    ) -> None:
+        """Persist user rating on a solution and push it to LangSmith as feedback.
+
+        Fail-open: LangSmith errors are logged but never raised.
+        """
+        if not 1 <= rating <= 5:
+            raise ValueError(f"rating must be 1-5, got {rating}")
+
+        result = await self.db.execute(
+            select(Solution)
+            .join(ScanRecord, Solution.scan_id == ScanRecord.id)
+            .where(Solution.scan_id == scan_id, ScanRecord.user_id == user_id)
+            .order_by(Solution.created_at.desc())
+            .limit(1)
+        )
+        solution = result.scalar_one_or_none()
+        if solution is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="solution_not_found")
+
+        solution.rating = rating
+        await self.db.commit()
+
+        run_id = solution.langsmith_run_id
+        if not run_id:
+            return
+        client = get_langsmith_client()
+        if client is None:
+            return
+        try:
+            client.create_feedback(
+                run_id=run_id,
+                key="user_rating",
+                score=rating / 5.0,
+                value=rating,
+                comment=comment,
+            )
+        except Exception as e:
+            logger.warning(
+                "LangSmith create_feedback failed for run %s: %s", run_id, e,
+            )
 
     async def get_scan_result(self, scan_id: int) -> Optional[ScanResponse]:
         """Retrieve a previous scan result."""

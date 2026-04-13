@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +50,7 @@ class PracticeGradingService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @traceable(run_type="chain", name="grading.practice", tags=["grading", "practice"])
     async def grade_and_save(
         self,
         question: PracticeQuestion,

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 import fitz  # PyMuPDF
 from langchain_core.messages import HumanMessage, SystemMessage
+from langsmith import traceable
 
 from app.llm.registry import get_llm
 
@@ -115,6 +116,7 @@ Return ONLY a JSON array, no markdown:
 class PDFParserService:
     """Parse exam PDFs using PyMuPDF (text extraction) + AI (question splitting)."""
 
+    @traceable(run_type="chain", name="pdf.parse_exam", tags=["pdf", "exam"])
     async def parse_exam_pdf(self, file_bytes: bytes) -> ParsedExam:
         """Extract text from exam PDF, then use AI to split into questions."""
         doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -184,6 +186,7 @@ class PDFParserService:
 
         return ParsedExam(title=title, raw_text=raw_text, questions=questions)
 
+    @traceable(run_type="chain", name="pdf.parse_schedule", tags=["pdf", "schedule"])
     async def parse_schedule_pdf(self, file_bytes: bytes) -> list[ScheduleAnswer]:
         """Extract text from marking schedule PDF, then use AI to extract answers."""
         doc = fitz.open(stream=file_bytes, filetype="pdf")
